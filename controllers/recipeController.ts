@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import Edit, { EditDocument, EditStatus } from '@models/editModel';
 import Recipe, { RecipeDocument } from '@models/recipeModel';
+import User from '@models/userModel';
 import AppError from '@utils/appError';
 import catchAsync from '@utils/catchAsync';
 import {
@@ -17,6 +18,41 @@ import {
 import { ErrorCode } from 'translations/errorCodes';
 import { Status } from 'types/generalTypes';
 
+/**
+ * Prepare plain recipe objects for a response: add the author's username and
+ * whether the user has saved each one. savedBy is replaced with a count so
+ * other users' IDs aren't sent to the client
+ */
+const formatRecipesForUser = async <
+  T extends { authorId: Types.ObjectId | null; savedBy?: Types.ObjectId[] },
+>(
+  recipes: T[],
+  userId: string,
+) => {
+  // One query for all the authors on the page
+  const authorIds = [
+    ...new Set(recipes.flatMap((r) => (r.authorId ? [String(r.authorId)] : []))),
+  ];
+  const authors = await User.find({ _id: { $in: authorIds } }).lean();
+  const authorNames = new Map(authors.map((a) => [String(a._id), a.username]));
+
+  return recipes.map(({ savedBy = [], ...recipe }) => ({
+    ...recipe,
+    // null when the author deleted the recipe or their account
+    authorName: recipe.authorId
+      ? (authorNames.get(String(recipe.authorId)) ?? null)
+      : null,
+    bSaved: savedBy.some((id) => id.equals(userId)),
+    savedCount: savedBy.length,
+  }));
+};
+const formatRecipeForUser = async <
+  T extends { authorId: Types.ObjectId | null; savedBy?: Types.ObjectId[] },
+>(
+  recipe: T,
+  userId: string,
+) => (await formatRecipesForUser([recipe], userId))[0];
+
 /** Create a new recipe */
 export const createRecipe = catchAsync(async (req, res, next) => {
   const payload = constructRecipePayloadFromBody(req.body, req.user!._id);
@@ -26,9 +62,10 @@ export const createRecipe = catchAsync(async (req, res, next) => {
 
   // 2) Create the new Recipe document
   const newRecipe: RecipeDocument = await Recipe.create(payload);
-  const recipeCopy: Partial<RecipeDocument> = newRecipe.toObject({
-    versionKey: false,
-  });
+  const recipeCopy = await formatRecipeForUser(
+    newRecipe.toObject({ versionKey: false }),
+    req.user!.id,
+  );
   delete recipeCopy.authorType;
 
   res.status(200).json({
@@ -76,7 +113,7 @@ export const viweRecipe = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: Status.Success,
     data: {
-      recipe: modifiedRecipe,
+      recipe: await formatRecipeForUser(modifiedRecipe, userId),
       // Lets the UI offer "view original" and "reset" options
       bHasEdits: !!userEdit,
     },
@@ -220,7 +257,9 @@ export const updateOwnRecipe = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: Status.Success,
-    data: { recipe: updatedRecipe },
+    data: {
+      recipe: await formatRecipeForUser(updatedRecipe.toObject(), userId),
+    },
   });
 });
 /** Update a saved recipe that another user created */
@@ -273,7 +312,7 @@ export const updateSavedRecipe = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: Status.Success,
-    data: { recipe: modifiedRecipe },
+    data: { recipe: await formatRecipeForUser(modifiedRecipe, userId) },
   });
 });
 /**
@@ -350,7 +389,10 @@ export const reviewSuggestion = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: Status.Success,
-    data: { recipe, suggestion },
+    data: {
+      recipe: await formatRecipeForUser(recipe.toObject(), req.user!.id),
+      suggestion,
+    },
   });
 });
 /** List the suggestions the user has made, newest first, with their status */
@@ -500,8 +542,11 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
     results: recipes.length,
     totalPages: Math.ceil(total / limitNum),
     currentPage: pageNum,
-    data: recipes.map((recipe) =>
-      applyEditToRecipe(recipe, editsByRecipe.get(String(recipe._id))),
+    data: await formatRecipesForUser(
+      recipes.map((recipe) =>
+        applyEditToRecipe(recipe, editsByRecipe.get(String(recipe._id))),
+      ),
+      req.user!.id,
     ),
   });
 });

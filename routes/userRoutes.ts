@@ -12,6 +12,7 @@ export enum UserRoutes {
   Delete_Accouunt = '/delete-account',
   User_Details = '/user-details',
   Saved_Recipes = '/saved-recipes',
+  Update_Me = '/update-me',
 }
 
 const router = express.Router();
@@ -23,9 +24,10 @@ router.patch(UserRoutes.Reset_Password, authController.resetPassword);
 
 router.use(authController.protect);
 
-// TODO: Add Update User route - photo etc
+// TODO: Add photo to Update Me once image hosting is set up
 router.get(UserRoutes.Saved_Recipes, userController.savedRecipes);
 router.get(UserRoutes.User_Details, userController.userDetails);
+router.patch(UserRoutes.Update_Me, userController.updateMe);
 router.patch(UserRoutes.Update_Password, authController.updatePassword);
 router.delete(UserRoutes.Delete_Accouunt, authController.deleteMe);
 

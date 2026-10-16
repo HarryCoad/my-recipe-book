@@ -46,6 +46,7 @@ const createAndSendToken = (
     token,
     data: {
       user: {
+        id: user._id,
         username: user.username,
         email: user.email,
         photo: user.photo,
