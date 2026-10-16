@@ -1,0 +1,5 @@
+{
+  // Used by `npm run build` so tests aren't compiled into dist
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "tests", "vitest.config.mts"]
+}

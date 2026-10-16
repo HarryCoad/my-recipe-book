@@ -75,26 +75,19 @@ const globalErrorHandler = (
   err.statusCode = err.statusCode || 500;
   err.status = err.status || Status.Failure;
 
-  if (
-    process.env.NODE_ENV === 'development' ||
-    process.env.NODE_ENV === 'production'
-  ) {
-    // For whatever reason err.message wasn't being spread
-    let error = { ...err, message: err.message };
+  // Known errors are converted in every environment (including tests), so
+  // e.g. a validation error is always a 400 rather than a 500
+  // For whatever reason err.message wasn't being spread
+  let error = { ...err, message: err.message };
 
-    if (err.name === 'CastError') error = handleCastErrorDB(error);
-    if (err.name === 'ValidationError') error = handleValidationErrorDB(error);
-    if (err.code === 11000) error = handleDuplicateFieldDB(error);
-    if (err.name === 'JsonWebTokenError') error = handleJWTError();
-    if (err.name === 'TokenExpiredError') error = handleJWTExpired();
-    if (err.name === 'ZodError') error = handleZodError(err);
+  if (err.name === 'CastError') error = handleCastErrorDB(error);
+  if (err.name === 'ValidationError') error = handleValidationErrorDB(error);
+  if (err.code === 11000) error = handleDuplicateFieldDB(error);
+  if (err.name === 'JsonWebTokenError') error = handleJWTError();
+  if (err.name === 'TokenExpiredError') error = handleJWTExpired();
+  if (err.name === 'ZodError') error = handleZodError(err);
 
-    sendError(error, res, process.env.NODE_ENV === 'development');
-  } else
-    res.status(err.statusCode).json({
-      status: err.status,
-      message: err.message,
-    });
+  sendError(error, res, process.env.NODE_ENV === 'development');
 };
 
 export default globalErrorHandler;
