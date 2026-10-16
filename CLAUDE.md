@@ -1,0 +1,52 @@
+# My Recipe Book API
+
+Express + TypeScript + Mongoose (MongoDB Atlas) backend for a recipe book app. The UI is a separate project. **`docs/API.md` is the API reference: keep it up to date whenever endpoints, request bodies, responses or error codes change.**
+
+## Commands
+
+- `npm run dev`: runs `server.ts` with nodemon on port 8000 (from `config.env`)
+- `npm test`: Vitest suite against an in-memory MongoDB (`npm run test:watch` to rerun on save)
+- `npx tsc --noEmit -p tsconfig.json`: type-check, including tests
+- `npm run build`: compiles to `dist/` using `tsconfig.build.json`, which leaves the tests out
+- ESLint is set up but doesn't parse TypeScript yet, so it can't be used for linting. Prettier uses single quotes.
+
+## Structure
+
+- `routes/` → `controllers/` → `models/`. Recipe routes are in `routes/recipeRoutes.ts`, and every route except signup, login and password reset requires auth through `authController.protect`.
+- `utils/recipeUtils.ts` holds request payload builders, Zod schemas, and shared recipe logic (`applyEditToRecipe`, `releaseRecipeFromAuthor`, `removeRecipe`).
+- `translations/errorCodes.ts`: the error codes the API returns.
+- `dev-data/` and `config.env` are gitignored.
+
+## Conventions
+
+- Wrap handlers in `catchAsync`. Return errors with `next(new AppError(ErrorCode.X, status))`, using an `ErrorCode` rather than an English message, so the UI can translate it.
+- Responses are `{ status: Status.Success, data: ... }`. `transformIdMiddleware` renames every `_id` in a response to `id`.
+- Boolean fields and query params start with `b` (`bPrivate`, `bOnlySaved`). Query params are strings, so compare them with `=== 'true'`.
+- Mutating routes are mostly `POST` with the ID in the body, matching the existing style.
+- Imports use the `@models/`, `@controllers/`, `@utils/` and `@routes/` aliases, or `baseUrl` paths such as `translations/errorCodes`.
+- Some existing names are misspelled (`viweRecipe`, `userContrroller.ts`). Leave them unless asked to rename them.
+
+## Domain rules
+
+These were decided deliberately. Keep them consistent:
+
+- **Personal edits vs suggestions:** both are `Edit` documents. A personal edit (`isSuggestion: false`, one per user per recipe) overlays ingredients, steps and tags for that user only. Suggestions go to the author, who accepts or rejects each one; accepting applies it to the recipe.
+- `Edit.tags` defaults to `undefined`, not `[]`, so "tags not edited" is different from "all tags removed". Empty `ingredients` or `steps` mean "not edited".
+- Users must save a recipe before editing or suggesting. Unsaving deletes their personal edit, and requires `bConfirmLoseEdits: true` if one exists.
+- **Recipes without an author:** deleting a recipe, or an account, goes through `releaseRecipeFromAuthor`. With other savers, the recipe stays with `authorId: null`, is frozen, has suggestions turned off and is hidden from general search. It's removed once nobody has it saved. Account deletion also unsaves the user everywhere and deletes their edits.
+- **Responses never include `savedBy`** (it would expose other users' IDs). Every recipe response goes through `formatRecipesForUser` in `recipeController.ts`, which adds `authorName`, `bSaved` and `savedCount`.
+- Recipe visibility: the author, or `bPrivate: false`. Recipes without an author are also visible to their savers.
+
+## Gotchas
+
+- Recipes are soft deleted (`bDeleted`). A query hook in `recipeModel.ts` filters them out of `find*` and `countDocuments`, using `this.where()`. Don't use `setQuery({...$or})`, which overwrites the caller's `$or`. **Aggregates skip this hook**, so add `bDeleted: { $ne: true }` to them yourself.
+- `Recipe.aggregate` doesn't cast types, so convert IDs with `new Types.ObjectId(...)` first (see `searchRecipes`).
+- Recipes have no `createdAt`. Sort by `_id` for creation order.
+- `server.ts` and `dev-data/importData.ts` call `dns.setServers(['8.8.8.8', '1.1.1.1'])`, because Node on this machine resolves DNS through 127.0.0.1, which breaks `mongodb+srv://` lookups.
+- `updateMe` uses `user.save({ validateModifiedOnly: true })` so the duplicate username handler runs and the `passwordConfirm` validator doesn't.
+
+## Tests
+
+- `tests/setup.ts` starts an in-memory MongoDB per test file and empties it before each test. `tests/helpers.ts` has `createUser`, `createRecipe`, `saveRecipe` and `as(user).get/post/patch/delete`.
+- Tests go through HTTP with Supertest. Each test sets up its own data and follows set up → act → check, with blank lines between the steps.
+- Add or update tests alongside behaviour changes, and run `npm test` before finishing.
