@@ -96,16 +96,15 @@ const RecipeSchema = new Schema<RecipeDocument>(
 );
 
 // Filter out any soft deleted recipes
-// RecipeSchema.pre(
-//   /^find/,
-//   function (this: Query<RecipeDocument, RecipeDocument>, next) {
-//     this.setQuery({
-//       ...this.getQuery(),
-//       $or: [{ bDeleted: false }, { bDeleted: { $exists: false } }], // Include docs without bDeleted field
-//     });
-//     next();
-//   },
-// );
+// Uses where() rather than setQuery() so it adds to the query instead of overwriting an existing $or
+// $ne: true also includes docs without the bDeleted field
+RecipeSchema.pre(
+  /^find|^countDocuments$/,
+  function (this: Query<RecipeDocument, RecipeDocument>, next) {
+    this.where({ bDeleted: { $ne: true } });
+    next();
+  },
+);
 
 const Recipe = mongoose.model<RecipeDocument>('Recipe', RecipeSchema);
 

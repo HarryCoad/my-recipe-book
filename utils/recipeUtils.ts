@@ -3,6 +3,28 @@ import { map, z } from 'zod';
 import AppError from './appError';
 import { ErrorCode } from 'translations/errorCodes';
 
+/** Escape user input so it is matched literally inside a RegExp */
+export const escapeRegex = (str: string) =>
+  str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Overlay a user's personal edit onto a recipe, keeping the original fields the edit leaves empty */
+export const applyEditToRecipe = <
+  T extends { ingredients: unknown[]; steps: string[] },
+>(
+  recipe: T,
+  edit?: { ingredients?: T['ingredients']; steps?: string[] } | null,
+): T => {
+  if (!edit) return recipe;
+  return {
+    ...recipe,
+    ingredients:
+      edit.ingredients && edit.ingredients.length > 0
+        ? edit.ingredients
+        : recipe.ingredients,
+    steps: edit.steps && edit.steps.length > 0 ? edit.steps : recipe.steps,
+  };
+};
+
 export interface RecipeRequestBody {
   authorType?: string;
   bPrivate?: boolean;
