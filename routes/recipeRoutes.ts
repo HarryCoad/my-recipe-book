@@ -15,6 +15,7 @@ export enum RecipeRoutes {
   Review_Suggestion = '/review-suggestion',
   My_Suggestions = '/my-suggestions',
   Search = '/search',
+  Tags = '/tags',
 }
 
 const router = express.Router();
@@ -34,6 +35,7 @@ router.get(
 );
 router.post(RecipeRoutes.Review_Suggestion, recipeController.reviewSuggestion);
 router.get(RecipeRoutes.My_Suggestions, recipeController.mySuggestions);
+router.get(RecipeRoutes.Tags, recipeController.tagSuggestions);
 // Must stay last, otherwise '/:id' would match the GET routes above
 router.get(RecipeRoutes.View, recipeController.viweRecipe);
 

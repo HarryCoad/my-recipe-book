@@ -4,6 +4,7 @@ import Recipe, { RecipeDocument } from '@models/recipeModel';
 import User from '@models/userModel';
 import AppError from '@utils/appError';
 import catchAsync from '@utils/catchAsync';
+import { normaliseTag } from '@utils/tagUtils';
 import {
   applyEditToRecipe,
   constructEditRecipeFromBody,
@@ -408,6 +409,48 @@ export const mySuggestions = catchAsync(async (req, res, next) => {
     status: Status.Success,
     results: suggestions.length,
     data: { suggestions },
+  });
+});
+/**
+ * Suggest existing tags for autocomplete, most used first, so users reuse
+ * tags rather than creating near-duplicates. ?search= filters them
+ */
+export const tagSuggestions = catchAsync(async (req, res, next) => {
+  const { search, limit = 10 } = req.query;
+  const limitNum = Math.min(Math.max(Number(limit) || 10, 1), 50);
+  const userId = new Types.ObjectId(String(req.user!.id));
+
+  const tags = await Recipe.aggregate([
+    // Only recipes the user can see, so private recipes' tags aren't exposed.
+    // Aggregates skip the model's soft delete hook, so filter deleted ones here
+    {
+      $match: {
+        bDeleted: { $ne: true },
+        $or: [{ authorId: userId }, { bPrivate: false }],
+      },
+    },
+    { $unwind: '$tags' },
+    ...(search
+      ? [
+          {
+            $match: {
+              tags: {
+                $regex: escapeRegex(normaliseTag(String(search))),
+              },
+            },
+          },
+        ]
+      : []),
+    { $group: { _id: '$tags', count: { $sum: 1 } } },
+    { $sort: { count: -1, _id: 1 } },
+    { $limit: limitNum },
+    // Named tag rather than _id, which would otherwise be renamed to id
+    { $project: { _id: 0, tag: '$_id', count: 1 } },
+  ]);
+
+  res.status(200).json({
+    status: Status.Success,
+    data: { tags },
   });
 });
 /** Remove the user's personal edit so they see the original recipe again */

@@ -16,6 +16,7 @@ Express + TypeScript + Mongoose (MongoDB Atlas) backend for a recipe book app. T
 - `utils/recipeUtils.ts` holds request payload builders, Zod schemas, and shared recipe logic (`applyEditToRecipe`, `releaseRecipeFromAuthor`, `removeRecipe`).
 - `translations/errorCodes.ts`: the error codes the API returns.
 - `dev-data/` and `config.env` are gitignored.
+- `scripts/`: one-off maintenance scripts that run against the real database. They're dry runs unless passed `--apply`.
 
 ## Conventions
 
@@ -31,6 +32,7 @@ Express + TypeScript + Mongoose (MongoDB Atlas) backend for a recipe book app. T
 These were decided deliberately. Keep them consistent:
 
 - **Personal edits vs suggestions:** both are `Edit` documents. A personal edit (`isSuggestion: false`, one per user per recipe) overlays ingredients, steps and tags for that user only. Suggestions go to the author, who accepts or rejects each one; accepting applies it to the recipe.
+- **Tags** are user-created free text, normalised by `normaliseTags` in `utils/tagUtils.ts` (trim, lowercase, collapse spaces, dedupe). This happens in the payload builders before validation (limits in `recipeConstants.ts`), and again in a Mongoose setter on `Recipe.tags` and `Edit.tags` that catches any other write. `GET /recipes/tags` powers autocomplete, so users reuse existing tags.
 - `Edit.tags` defaults to `undefined`, not `[]`, so "tags not edited" is different from "all tags removed". Empty `ingredients` or `steps` mean "not edited".
 - Users must save a recipe before editing or suggesting. Unsaving deletes their personal edit, and requires `bConfirmLoseEdits: true` if one exists.
 - **Recipes without an author:** deleting a recipe, or an account, goes through `releaseRecipeFromAuthor`. With other savers, the recipe stays with `authorId: null`, is frozen, has suggestions turned off and is hidden from general search. It's removed once nobody has it saved. Account deletion also unsaves the user everywhere and deletes their edits.

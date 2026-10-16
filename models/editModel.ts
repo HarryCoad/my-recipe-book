@@ -2,6 +2,7 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 import { Ingredient } from './recipeModel';
 import { ErrorCode } from 'translations/errorCodes';
 import { Unit } from 'constants/recipeConstants';
+import { normaliseTags } from '../utils/tagUtils';
 
 export enum EditStatus {
   PENDING = 'pending',
@@ -43,7 +44,7 @@ const EditSchema = new Schema<EditDocument>({
   steps: [{ type: String, required: [true, ErrorCode.Required] }],
   // Defaults to undefined rather than [] so "tags not edited" can be told
   // apart from "edited to remove all tags"
-  tags: { type: [String], default: undefined },
+  tags: { type: [String], default: undefined, set: normaliseTags },
   comments: { type: String },
   status: {
     type: String,

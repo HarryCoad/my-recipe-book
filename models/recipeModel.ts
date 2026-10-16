@@ -7,6 +7,7 @@ import {
 } from '../constants/recipeConstants';
 import mongoose, { Document, Query, Schema, Types } from 'mongoose';
 import { ErrorCode } from '../translations/errorCodes';
+import { normaliseTags } from '../utils/tagUtils';
 
 export interface SavedRecipe {
   recipeId: Types.ObjectId;
@@ -83,7 +84,9 @@ const RecipeSchema = new Schema<RecipeDocument>(
       },
     ],
     steps: [{ type: String, required: [true, ErrorCode.Required] }],
-    tags: [{ type: String }],
+    // The setter cleans tags on every write, including ones that skip the
+    // request payload builders (e.g. the seed import script)
+    tags: { type: [String], set: normaliseTags },
     savedBy: [{ type: Schema.Types.ObjectId, ref: 'User' }],
     bDeleted: { type: Boolean, default: false },
   },

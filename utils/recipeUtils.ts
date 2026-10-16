@@ -1,9 +1,15 @@
-import { RecipeCategory, Unit } from 'constants/recipeConstants';
+import {
+  MAX_TAG_LENGTH,
+  MAX_TAGS,
+  RecipeCategory,
+  Unit,
+} from 'constants/recipeConstants';
 import { map, z } from 'zod';
 import AppError from './appError';
 import { ErrorCode } from 'translations/errorCodes';
 import Edit from '@models/editModel';
 import { RecipeDocument } from '@models/recipeModel';
+import { normaliseTags } from './tagUtils';
 
 /**
  * Permanently remove a recipe nobody needs any more, along with all its edits.
@@ -117,7 +123,7 @@ export const constructRecipePayloadFromBody = (
     cookTime,
     ingredients,
     steps,
-    tags,
+    tags: normaliseTags(tags),
     savedBy: [userId],
   };
 };
@@ -163,7 +169,7 @@ export const constructUpdateRecipePayloadFromBody = (
     cookTime,
     ingredients,
     steps,
-    tags,
+    tags: normaliseTags(tags),
   };
 };
 export interface EditSugestionBody {
@@ -198,7 +204,7 @@ export const constructEditRecipeFromBody = (body: EditSugestionBody) => {
     isSuggestion,
     ingredients,
     steps,
-    tags,
+    tags: normaliseTags(tags),
     comments,
   };
 
@@ -208,6 +214,12 @@ export const constructEditRecipeFromBody = (body: EditSugestionBody) => {
     Object.entries(payload).filter(([, value]) => value !== undefined),
   ) as Partial<typeof payload>;
 };
+
+// Checked after normaliseTags, so duplicates and spacing don't count towards the limits
+const TagsSchema = z
+  .array(z.string().max(MAX_TAG_LENGTH))
+  .max(MAX_TAGS)
+  .optional();
 
 export const RecipeSchema = z.object({
   title: z.string().min(1),
@@ -227,7 +239,7 @@ export const RecipeSchema = z.object({
     }),
   ),
   steps: z.array(z.string().min(1)),
-  tags: z.array(z.string()).optional(),
+  tags: TagsSchema,
 });
 export const EditSchema = z.object({
   ingredients: z
@@ -241,6 +253,6 @@ export const EditSchema = z.object({
     )
     .optional(),
   steps: z.array(z.string().min(1)).optional(),
-  tags: z.array(z.string()).optional(),
+  tags: TagsSchema,
   comments: z.string().optional(),
 });

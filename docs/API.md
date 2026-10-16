@@ -85,7 +85,7 @@ Every recipe response, single or in a list, has this shape:
     unit: Unit;
   }[];
   steps: string[];
-  tags: string[];
+  tags: string[];              // always normalised, see "Tags" below
   bSaved: boolean;             // whether the current user has saved it
   savedCount: number;          // how many users have saved it, including the author
   bDeleted: boolean;           // always false in responses
@@ -127,6 +127,18 @@ Personal edits and suggestions are both stored as edits:
 ```
 
 ## How the features work
+
+### Tags
+
+Users create their own tags. Wherever tags are saved (recipes, personal edits, suggestions), the API cleans them up first:
+
+- Spaces at either end are removed, and repeated spaces become one.
+- Tags are lowercased, so `" Gluten  Free"` is stored as `"gluten free"`.
+- Duplicates and empty tags are removed.
+
+After that, each tag can be at most 30 characters, and a recipe can have at most 10 tags. Breaking either limit returns a `Validation_Error`.
+
+To stop near-duplicates building up, the UI should offer autocomplete from [`GET /recipes/tags`](#get-recipestags) as the user types a tag. Display tags in whatever case suits the design. They're stored lowercase.
 
 ### Personal edits
 
@@ -239,7 +251,7 @@ All of these need auth.
 }
 ```
 
-`tags`, `bPrivate` (default `false`), `bAllowSuggestions` (default `false`) and `subheader` are optional. `serves`, `prepTime`, `cookTime` and `quantity` must be positive. The author automatically saves their own recipe.
+`tags`, `bPrivate` (default `false`), `bAllowSuggestions` (default `false`) and `subheader` are optional. `tags` are [normalised](#tags), with a limit of 10 tags of up to 30 characters each. `serves`, `prepTime`, `cookTime` and `quantity` must be positive. The author automatically saves their own recipe.
 
 **200:** `{ status, data: { recipe: Recipe } }`
 
@@ -266,6 +278,23 @@ Only returns recipes the user can see: their own, plus other users' public ones.
 ```
 
 **Errors:** `INVALID_ID` (400) for a malformed `authorId`.
+
+### `GET /recipes/tags`
+
+Existing tags for autocomplete, most used first. Only tags on recipes the user can see are included.
+
+| Query param | Default | Notes |
+|---|---|---|
+| `search` | | Only tags containing this text. Case and spacing are ignored |
+| `limit` | `10` | Up to 50 |
+
+**200:**
+
+```ts
+{ status, data: { tags: { tag: string; count: number }[] } }
+```
+
+`count` is how many recipes use the tag.
 
 ### `GET /recipes/:id`
 

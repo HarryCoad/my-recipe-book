@@ -1,5 +1,7 @@
 export const RECIPE_PRIVATE_DEFAULT = false;
 export const RECIPE_SUGGESTIONS_DEFAULT = false;
+export const MAX_TAGS = 10;
+export const MAX_TAG_LENGTH = 30;
 
 export enum RecipeCategory {
   Starter = 'Starter',
