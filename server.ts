@@ -1,7 +1,11 @@
 /* eslint-disable no-console */
+import dns from 'dns';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import app from './app';
+
+// Node is picking up 127.0.0.1 as its DNS server on this machine, which breaks mongodb+srv lookups
+dns.setServers(['8.8.8.8', '1.1.1.1']);
 
 process.on('uncaughtException', (err: Error) => {
   console.log('-------------uncaughtException: start------------------');

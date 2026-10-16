@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 import xss from 'xss';
 import hpp from 'hpp';
+import cors from 'cors';
 import AppError from '@utils/appError';
 import globalErrorHandler from '@controllers/errorControllers';
 import sanitiseObject from '@utils/sanitiseObject';
@@ -18,6 +19,13 @@ dotenv.config();
 dotenv.config({ path: './config.env' });
 
 const app: Express = express();
+
+app.use(
+  cors({
+    origin: 'http://localhost:3000',
+    credentials: true, // this allows cookies/headers to be sent
+  }),
+);
 
 // Global middleware
 // Set securuty HTTP headers
