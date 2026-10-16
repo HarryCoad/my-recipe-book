@@ -10,7 +10,10 @@ export enum RecipeRoutes {
   ToggleSave = '/toggle-save',
   Update_Own_Recipe = '/update-own-recipe',
   Edit_Recipe = '/edit-recipe',
+  Reset_Edit = '/reset-edit',
   View_Suggestions = '/view-suggestions/:id',
+  Review_Suggestion = '/review-suggestion',
+  My_Suggestions = '/my-suggestions',
   Search = '/search',
 }
 
@@ -24,10 +27,14 @@ router.post(RecipeRoutes.Delete, recipeController.deleteRecipe);
 router.post(RecipeRoutes.ToggleSave, recipeController.toggleSaveRecipe);
 router.patch(RecipeRoutes.Update_Own_Recipe, recipeController.updateOwnRecipe);
 router.post(RecipeRoutes.Edit_Recipe, recipeController.updateSavedRecipe);
+router.post(RecipeRoutes.Reset_Edit, recipeController.resetRecipeEdit);
 router.get(
   RecipeRoutes.View_Suggestions,
   recipeController.viewRecipeSuggestions,
 );
+router.post(RecipeRoutes.Review_Suggestion, recipeController.reviewSuggestion);
+router.get(RecipeRoutes.My_Suggestions, recipeController.mySuggestions);
+// Must stay last, otherwise '/:id' would match the GET routes above
 router.get(RecipeRoutes.View, recipeController.viweRecipe);
 
 export default router;

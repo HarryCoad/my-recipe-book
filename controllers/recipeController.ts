@@ -11,6 +11,8 @@ import {
   EditSchema,
   escapeRegex,
   RecipeSchema,
+  releaseRecipeFromAuthor,
+  removeRecipe,
 } from '@utils/recipeUtils';
 import { ErrorCode } from 'translations/errorCodes';
 import { Status } from 'types/generalTypes';
@@ -36,15 +38,24 @@ export const createRecipe = catchAsync(async (req, res, next) => {
     },
   });
 });
-/** View a recipe that the user has access to */
+/**
+ * View a recipe that the user has access to, with their personal edit applied.
+ * Pass ?original=true to see the recipe without it
+ */
 export const viweRecipe = catchAsync(async (req, res, next) => {
   const recipeId = req.params.id;
   const userId = req.user?.id;
+  const bOriginal = req.query.original === 'true';
 
-  // const recipe = await Recipe.findById(req.params.id);
   const recipe = await Recipe.findOne({
     _id: recipeId,
-    $or: [{ authorId: userId }, { bPrivate: false }],
+    $or: [
+      { authorId: userId },
+      // Public recipes, including ones whose author deleted them, so they can still be shared
+      { bPrivate: false },
+      // Private recipes whose author deleted them stay visible to people who saved them
+      { authorId: null, savedBy: userId },
+    ],
   });
 
   if (!recipe) {
@@ -57,16 +68,24 @@ export const viweRecipe = catchAsync(async (req, res, next) => {
     isSuggestion: false,
   });
   // Convert Mongoose doc to plain object
-  const modifiedRecipe = applyEditToRecipe(recipe.toObject(), userEdit);
+  const modifiedRecipe = applyEditToRecipe(
+    recipe.toObject(),
+    bOriginal ? null : userEdit,
+  );
 
   res.status(200).json({
     status: Status.Success,
     data: {
       recipe: modifiedRecipe,
+      // Lets the UI offer "view original" and "reset" options
+      bHasEdits: !!userEdit,
     },
   });
 });
-/** View Recipe suggestions */
+/**
+ * View suggestions for a recipe the user wrote. Only pending ones by default,
+ * pass ?bShowAll=true to include accepted and rejected ones
+ */
 export const viewRecipeSuggestions = catchAsync(async (req, res, next) => {
   const recipe = await Recipe.findOne({
     _id: req.params.id,
@@ -78,17 +97,25 @@ export const viewRecipeSuggestions = catchAsync(async (req, res, next) => {
   }
 
   // Only suggestions, not other users' personal edits
-  const edits = await Edit.find({ recipeId: recipe.id, isSuggestion: true });
+  const edits = await Edit.find({
+    recipeId: recipe.id,
+    isSuggestion: true,
+    ...(req.query.bShowAll === 'true' ? {} : { status: EditStatus.PENDING }),
+  }).sort({ _id: -1 });
 
   res.status(200).json({
     status: Status.Success,
     data: { edits },
   });
 });
-/** Save a recipe that the user has access to */
+/**
+ * Save or unsave a recipe that the user has access to.
+ * Unsaving deletes the user's personal edit, so if they have one the request
+ * must include bConfirmLoseEdits: true
+ */
 export const toggleSaveRecipe = catchAsync(async (req, res, next) => {
   const userId = req.user?.id;
-  const { id: recipeId, bSave } = req.body;
+  const { id: recipeId, bSave, bConfirmLoseEdits } = req.body;
 
   if (typeof bSave !== 'boolean') {
     return next(new AppError(ErrorCode.MISSING_FIELDS, 400));
@@ -99,11 +126,30 @@ export const toggleSaveRecipe = catchAsync(async (req, res, next) => {
 
   // Can only save private recipes you own. Unsaving is always allowed, so a
   // recipe that was made private can still be removed from your list
-  if (!recipe || (bSave && recipe.bPrivate && !recipe.authorId.equals(userId))) {
+  if (
+    !recipe ||
+    (bSave && recipe.bPrivate && !recipe.authorId?.equals(userId))
+  ) {
     return next(new AppError(ErrorCode.Invalid_Recipe, 404));
   }
 
-  // 2) Add recipe to user's saved list
+  // 2) Unsaving loses the user's personal edit, so make sure they've agreed to that
+  if (!bSave) {
+    const userEdit = await Edit.findOne({
+      recipeId: recipe.id,
+      userId,
+      isSuggestion: false,
+    });
+
+    if (userEdit) {
+      if (bConfirmLoseEdits !== true) {
+        return next(new AppError(ErrorCode.Confirm_Lose_Edits, 400));
+      }
+      await userEdit.deleteOne();
+    }
+  }
+
+  // 3) Add recipe to user's saved list
   if (bSave) {
     // Update user saved list
     if (
@@ -121,6 +167,11 @@ export const toggleSaveRecipe = catchAsync(async (req, res, next) => {
     );
     // Update recipe saved list
     recipe.savedBy = recipe.savedBy.filter((user) => !user.equals(userId));
+
+    // A recipe with no author is only kept for the people who saved it
+    if (!recipe.authorId && recipe.savedBy.length === 0) {
+      await removeRecipe(recipe);
+    }
   }
   await req.user?.save();
   await recipe.save();
@@ -148,7 +199,7 @@ export const updateOwnRecipe = catchAsync(async (req, res, next) => {
     return next(new AppError(ErrorCode.Invalid_Id, 404));
   }
 
-  if (!recipe.authorId.equals(userId)) {
+  if (!recipe.authorId?.equals(userId)) {
     return next(new AppError(ErrorCode.User_Doesnt_Own_Recipe, 400));
   }
 
@@ -191,9 +242,10 @@ export const updateSavedRecipe = catchAsync(async (req, res, next) => {
   if (!recipe) {
     return next(new AppError(ErrorCode.Invalid_Recipe, 400));
   }
-  if (recipe.authorId.equals(req.user!.id)) {
+  if (recipe.authorId?.equals(req.user!.id)) {
     return next(new AppError(ErrorCode.Use_Update_Own_Recipe_Endpoint, 400));
   }
+  // Recipes without an author have suggestions turned off, so this also covers them
   if (!recipe.bAllowSuggestions && payload.isSuggestion) {
     return next(new AppError(ErrorCode.No_Suggestions, 400));
   }
@@ -224,24 +276,109 @@ export const updateSavedRecipe = catchAsync(async (req, res, next) => {
     data: { recipe: modifiedRecipe },
   });
 });
-/** Delete a recipe that the user created */
+/**
+ * Delete a recipe that the user created. If other users have it saved it is
+ * kept for them without an author, otherwise it is removed
+ */
 export const deleteRecipe = catchAsync(async (req, res, next) => {
   const { id } = req.body;
+  const userId = req.user!.id;
 
-  const recipe = await Recipe.findOneAndUpdate(
-    {
-      _id: id,
-      authorId: req.user?.id,
-    },
-    { bDeleted: true },
-  );
+  const recipe = await Recipe.findOne({ _id: id, authorId: userId });
 
   if (!recipe) {
     return next(new AppError(ErrorCode.Invalid_Id, 404));
   }
 
-  // Hard delete all associated edits
-  await Edit.deleteMany({ recipeId: id });
+  await releaseRecipeFromAuthor(recipe, userId);
+  req.user!.savedRecipes = req.user!.savedRecipes.filter(
+    (saved) => !saved.recipeId.equals(recipe.id),
+  );
+
+  await recipe.save();
+  await req.user!.save();
+
+  res.status(200).json({
+    status: Status.Success,
+    data: null,
+  });
+});
+/**
+ * Accept or reject a pending suggestion on a recipe the user wrote.
+ * Accepting applies the suggested ingredients, steps and tags to the recipe
+ */
+export const reviewSuggestion = catchAsync(async (req, res, next) => {
+  const { id, bAccept } = req.body;
+
+  if (typeof bAccept !== 'boolean') {
+    return next(new AppError(ErrorCode.MISSING_FIELDS, 400));
+  }
+
+  // 1) Find the suggestion, and check the user wrote the recipe it's for
+  const suggestion = await Edit.findOne({ _id: id, isSuggestion: true });
+  const recipe =
+    suggestion &&
+    (await Recipe.findOne({
+      _id: suggestion.recipeId,
+      authorId: req.user!.id,
+    }));
+
+  if (!suggestion || !recipe) {
+    return next(new AppError(ErrorCode.Invalid_Id, 404));
+  }
+  if (suggestion.status !== EditStatus.PENDING) {
+    return next(new AppError(ErrorCode.Suggestion_Already_Reviewed, 400));
+  }
+
+  // 2) Apply it to the recipe. Other pending suggestions are left for the
+  // author to review one by one
+  if (bAccept) {
+    const updated = applyEditToRecipe(
+      {
+        ingredients: recipe.ingredients,
+        steps: recipe.steps,
+        tags: recipe.tags,
+      },
+      suggestion,
+    );
+    recipe.set(updated);
+    await recipe.save();
+  }
+
+  suggestion.status = bAccept ? EditStatus.ACCEPTED : EditStatus.REJECTED;
+  await suggestion.save();
+
+  res.status(200).json({
+    status: Status.Success,
+    data: { recipe, suggestion },
+  });
+});
+/** List the suggestions the user has made, newest first, with their status */
+export const mySuggestions = catchAsync(async (req, res, next) => {
+  const suggestions = await Edit.find({
+    userId: req.user!.id,
+    isSuggestion: true,
+  })
+    .sort({ _id: -1 })
+    .populate('recipeId', 'title');
+
+  res.status(200).json({
+    status: Status.Success,
+    results: suggestions.length,
+    data: { suggestions },
+  });
+});
+/** Remove the user's personal edit so they see the original recipe again */
+export const resetRecipeEdit = catchAsync(async (req, res, next) => {
+  const { deletedCount } = await Edit.deleteOne({
+    recipeId: req.body.id,
+    userId: req.user!.id,
+    isSuggestion: false,
+  });
+
+  if (deletedCount === 0) {
+    return next(new AppError(ErrorCode.Invalid_Id, 404));
+  }
 
   res.status(200).json({
     status: Status.Success,
@@ -271,12 +408,27 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
     return next(new AppError(ErrorCode.Invalid_Id, 400));
   }
   const userId = new Types.ObjectId(String(req.user!.id));
+  const bSavedOnly = bOnlySaved === 'true';
 
   // Base query: only recipes the user has access to (deleted recipes are
   // filtered out in the model). Every filter goes in $and so that filters
   // using $or don't overwrite each other
   const query: any = {
-    $and: [{ $or: [{ authorId: userId }, { bPrivate: false }] }],
+    $and: [
+      bSavedOnly
+        ? // Your saved list includes recipes whose author deleted them
+          {
+            savedBy: userId,
+            $or: [{ authorId: userId }, { bPrivate: false }, { authorId: null }],
+          }
+        : // General search hides recipes whose author deleted them
+          {
+            $or: [
+              { authorId: userId },
+              { bPrivate: false, authorId: { $ne: null } },
+            ],
+          },
+    ],
   };
 
   // Search filter (title or description match)
@@ -295,9 +447,6 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
 
   // Filter by author
   if (authorId) query.authorId = new Types.ObjectId(String(authorId));
-
-  // Only saved recipes. Query params are strings, so ?bOnlySaved=false is truthy
-  if (bOnlySaved === 'true') query.savedBy = userId;
 
   // Sorting logic. Recipes have no createdAt field, but an ObjectId
   // starts with its creation time so sorting by _id sorts by age
@@ -322,7 +471,12 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
           { $limit: limitNum },
           { $project: { savedCount: 0, __v: 0 } },
         ])
-      : Recipe.find(query).sort(sortBy).skip(skip).limit(limitNum);
+      : Recipe.find(query)
+          .select('-__v')
+          .sort(sortBy)
+          .skip(skip)
+          .limit(limitNum)
+          .lean();
 
   // Execute query
   const [recipes, total] = await Promise.all([
@@ -330,11 +484,24 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
     Recipe.countDocuments(query),
   ]);
 
+  // Show the user's personal edits (e.g. their tags) in the results. One
+  // query for the whole page, using the edits index
+  const userEdits = await Edit.find({
+    userId,
+    isSuggestion: false,
+    recipeId: { $in: recipes.map((recipe) => recipe._id) },
+  }).lean();
+  const editsByRecipe = new Map(
+    userEdits.map((edit) => [String(edit.recipeId), edit]),
+  );
+
   res.status(200).json({
     status: Status.Success,
     results: recipes.length,
     totalPages: Math.ceil(total / limitNum),
     currentPage: pageNum,
-    data: recipes,
+    data: recipes.map((recipe) =>
+      applyEditToRecipe(recipe, editsByRecipe.get(String(recipe._id))),
+    ),
   });
 });

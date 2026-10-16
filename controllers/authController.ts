@@ -2,10 +2,13 @@ import crypto from 'crypto';
 import { Response } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 
+import Edit from '@models/editModel';
+import Recipe from '@models/recipeModel';
 import User, { UserDocument } from '@models/userModel';
 import AppError from '@utils/appError';
 import catchAsync from '@utils/catchAsync';
 import { sendEmail } from '@utils/email';
+import { releaseRecipeFromAuthor, removeRecipe } from '@utils/recipeUtils';
 import { ErrorCode } from 'translations/errorCodes';
 import { Status } from 'types/generalTypes';
 import { promisify } from 'util';
@@ -218,10 +221,37 @@ export const updatePassword = catchAsync(async (req, res, next) => {
   createAndSendToken(user, 200, res);
 });
 
+/**
+ * Deactivate the user's account. Their recipes are handled the same as if
+ * they deleted each one, and they're removed from everything they saved
+ */
 export const deleteMe = catchAsync(async (req, res, next) => {
+  const userId = req.user!.id;
+
+  // 1) Recipes they wrote: kept without an author for anyone who saved them
+  const ownRecipes = await Recipe.find({ authorId: userId });
+  for (const recipe of ownRecipes) {
+    await releaseRecipeFromAuthor(recipe, userId);
+    await recipe.save();
+  }
+
+  // 2) Other recipes they saved: unsave them, removing any that no longer
+  // have an author or anyone else saving them
+  const savedRecipes = await Recipe.find({ savedBy: userId });
+  for (const recipe of savedRecipes) {
+    recipe.savedBy = recipe.savedBy.filter((user) => !user.equals(userId));
+    if (!recipe.authorId && recipe.savedBy.length === 0) {
+      await removeRecipe(recipe);
+    }
+    await recipe.save();
+  }
+
+  // 3) Their personal edits and suggestions
+  await Edit.deleteMany({ userId });
+
   await User.findByIdAndUpdate(
-    req.user!.id,
-    { active: false },
+    userId,
+    { active: false, savedRecipes: [] },
     {
       runValidators: false,
     },

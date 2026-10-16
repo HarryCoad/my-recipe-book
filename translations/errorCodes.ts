@@ -18,4 +18,6 @@ export enum ErrorCode {
   Invalid_Credentails = 'INVALID_CREDENTIALS',
   MISSING_FIELDS = 'MISSING_FIELDS',
   Current_Password_Invalid = 'INVALID_CURRENT_PASSWORD',
+  Confirm_Lose_Edits = 'CONFIRM_LOSE_EDITS',
+  Suggestion_Already_Reviewed = 'SUGGESTION_ALREADY_REVIEWED',
 }

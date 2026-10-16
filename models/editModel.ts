@@ -15,6 +15,7 @@ export interface EditDocument extends Document<string> {
   isSuggestion: boolean;
   ingredients: Ingredient[];
   steps: string[];
+  tags?: string[];
   comments: string;
   status: EditStatus;
 }
@@ -22,6 +23,7 @@ export interface EditDocument extends Document<string> {
 const EditSchema = new Schema<EditDocument>({
   recipeId: {
     type: Schema.Types.ObjectId,
+    ref: 'Recipe',
     required: [true, ErrorCode.Required],
   },
   userId: { type: Schema.Types.ObjectId, required: [true, ErrorCode.Required] },
@@ -39,7 +41,10 @@ const EditSchema = new Schema<EditDocument>({
     },
   ],
   steps: [{ type: String, required: [true, ErrorCode.Required] }],
-  comments: [{ type: String, required: [true, ErrorCode.Required] }],
+  // Defaults to undefined rather than [] so "tags not edited" can be told
+  // apart from "edited to remove all tags"
+  tags: { type: [String], default: undefined },
+  comments: { type: String },
   status: {
     type: String,
     enum: Object.values(EditStatus),
@@ -47,6 +52,9 @@ const EditSchema = new Schema<EditDocument>({
     default: EditStatus.PENDING,
   },
 });
+
+// Edits are looked up by recipe, and by recipe + user (view, search results)
+EditSchema.index({ recipeId: 1, userId: 1, isSuggestion: 1 });
 
 const Edit = mongoose.model<EditDocument>('Edit', EditSchema);
 

@@ -21,7 +21,7 @@ export type Ingredient = {
 };
 
 export interface RecipeDocument extends Document<string> {
-  authorId: Types.ObjectId;
+  authorId: Types.ObjectId | null; // null once the author deletes it while others still have it saved
   authorType: 'User' | 'RecipeBook';
   bPrivate: boolean;
   bAllowSuggestions: boolean;
@@ -50,10 +50,9 @@ const recipe = await Recipe.findById(recipeId)
 
 const RecipeSchema = new Schema<RecipeDocument>(
   {
-    authorId: {
-      type: Schema.Types.ObjectId,
-      required: [true, ErrorCode.Required],
-    },
+    // Not required: set to null when the author deletes a recipe that other
+    // users still have saved, so they keep it
+    authorId: { type: Schema.Types.ObjectId, default: null },
     authorType: {
       type: String,
       enum: Object.values(RecipeType),
