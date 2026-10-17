@@ -36,7 +36,9 @@ describe('GET /recipes/search', () => {
     await createRecipe(alice, { title: 'Pancakes' });
 
     // '.*' would match everything if it were treated as a regular expression
-    const res = await as(alice).get(`/recipes/search?search=${encodeURIComponent('.*')}`);
+    const res = await as(alice).get(
+      `/recipes/search?search=${encodeURIComponent('.*')}`,
+    );
 
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(0);
@@ -92,7 +94,10 @@ describe('GET /recipes/search', () => {
     const bobby = await createUser('bobby');
     const recipe = await createRecipe(alice, { tags: ['quick'] });
     await saveRecipe(bobby, recipe.id);
-    await as(bobby).post('/recipes/edit-recipe', { id: recipe.id, tags: ['mine'] });
+    await as(bobby).post('/recipes/edit-recipe', {
+      id: recipe.id,
+      tags: ['mine'],
+    });
 
     const asEditor = await as(bobby).get('/recipes/search');
     const asAuthor = await as(alice).get('/recipes/search');
@@ -109,10 +114,125 @@ describe('GET /recipes/search', () => {
       await createRecipe(alice, { title });
     }
 
-    const res = await as(alice).get('/recipes/search?limit=2&page=2&sort=oldest');
+    const res = await as(alice).get(
+      '/recipes/search?limit=2&page=2&sort=oldest',
+    );
 
     expect(titles(res)).toEqual(['Three']);
     expect(res.body).toMatchObject({ totalPages: 2, currentPage: 2 });
+  });
+
+  it('filters by tags, requiring every tag', async () => {
+    const alice = await createUser('alice');
+    await createRecipe(alice, { title: 'Both', tags: ['quick', 'vegan'] });
+    await createRecipe(alice, { title: 'Quick', tags: ['quick'] });
+    await createRecipe(alice, { title: 'None', tags: [] });
+
+    const one = await as(alice).get('/recipes/search?tags=quick');
+    const both = await as(alice).get(
+      `/recipes/search?tags=${encodeURIComponent(' Quick , VEGAN')}`,
+    );
+
+    expect(titles(one).sort()).toEqual(['Both', 'Quick']);
+    expect(titles(both)).toEqual(['Both']);
+  });
+
+  it("filters by the user's own edited tags", async () => {
+    const alice = await createUser('alice');
+    const bobby = await createUser('bobby');
+    const recipe = await createRecipe(alice, {
+      title: 'Edited',
+      tags: ['quick'],
+    });
+    await saveRecipe(bobby, recipe.id);
+    await as(bobby).post('/recipes/edit-recipe', {
+      id: recipe.id,
+      tags: ['mine'],
+    });
+
+    const byEdited = await as(bobby).get('/recipes/search?tags=mine');
+    const byOriginal = await as(bobby).get('/recipes/search?tags=quick');
+    const asAuthor = await as(alice).get('/recipes/search?tags=quick');
+
+    expect(titles(byEdited)).toEqual(['Edited']);
+    expect(titles(byOriginal)).toEqual([]);
+    expect(titles(asAuthor)).toEqual(['Edited']);
+  });
+
+  it('filters by total time, including the limits', async () => {
+    const alice = await createUser('alice');
+    await createRecipe(alice, { title: 'Quick', prepTime: 5, cookTime: 10 });
+    await createRecipe(alice, { title: 'Medium', prepTime: 10, cookTime: 20 });
+    await createRecipe(alice, { title: 'Slow', prepTime: 30, cookTime: 90 });
+
+    const res = await as(alice).get('/recipes/search?minTime=15&maxTime=30');
+
+    expect(titles(res).sort()).toEqual(['Medium', 'Quick']);
+  });
+
+  it('filters by serves', async () => {
+    const alice = await createUser('alice');
+    await createRecipe(alice, { title: 'Two', serves: 2 });
+    await createRecipe(alice, { title: 'Four', serves: 4 });
+    await createRecipe(alice, { title: 'Eight', serves: 8 });
+
+    const res = await as(alice).get('/recipes/search?minServes=3&maxServes=6');
+
+    expect(titles(res)).toEqual(['Four']);
+  });
+
+  it('applies filters when sorting by popular too', async () => {
+    const alice = await createUser('alice');
+    await createRecipe(alice, { title: 'Match', tags: ['quick'], serves: 4 });
+    await createRecipe(alice, {
+      title: 'Wrong tag',
+      tags: ['slow'],
+      serves: 4,
+    });
+    await createRecipe(alice, { title: 'Too few', tags: ['quick'], serves: 1 });
+
+    const res = await as(alice).get(
+      '/recipes/search?sort=popular&tags=quick&minServes=2&maxTime=60',
+    );
+
+    expect(titles(res)).toEqual(['Match']);
+    expect(res.body.totalPages).toBe(1);
+  });
+
+  it.each(['minTime=abc', 'maxServes=-1'])(
+    'rejects an invalid number (%s)',
+    async (param) => {
+      const alice = await createUser('alice');
+
+      const res = await as(alice).get(`/recipes/search?${param}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(ErrorCode.Invalid);
+    },
+  );
+
+  it('hides saved recipes, including your own, with bHideSaved=true', async () => {
+    const alice = await createUser('alice');
+    const bobby = await createUser('bobby');
+    const saved = await createRecipe(alice, { title: 'Saved' });
+    await createRecipe(alice, { title: 'Not saved' });
+    await createRecipe(bobby, { title: 'Own' });
+    await saveRecipe(bobby, saved.id);
+
+    const res = await as(bobby).get('/recipes/search?bHideSaved=true');
+
+    expect(titles(res)).toEqual(['Not saved']);
+  });
+
+  it("can't combine bHideSaved and bOnlySaved", async () => {
+    const alice = await createUser('alice');
+
+    const res = await as(alice).get(
+      '/recipes/search?bHideSaved=true&bOnlySaved=true',
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe(ErrorCode.Invalid_Options);
   });
 
   it('rejects an invalid authorId', async () => {

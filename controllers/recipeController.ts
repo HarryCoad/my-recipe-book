@@ -488,6 +488,8 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
     search,
     authorId,
     bOnlySaved,
+    bHideSaved,
+    tags,
   } = req.query;
 
   // Convert query params to appropriate types
@@ -502,6 +504,25 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
   }
   const userId = new Types.ObjectId(String(req.user!.id));
   const bSavedOnly = bOnlySaved === 'true';
+  const bSavedHidden = bHideSaved === 'true';
+
+  if (bSavedOnly && bSavedHidden) {
+    return next(new AppError(ErrorCode.Invalid_Options, 400));
+  }
+
+  // Range filters. Missing ones are undefined, anything else must be a
+  // number that isn't negative
+  const ranges: Record<string, number | undefined> = {};
+  for (const key of ['minTime', 'maxTime', 'minServes', 'maxServes']) {
+    const value = req.query[key];
+    if (value === undefined || value === '') continue;
+
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+      return next(new AppError(ErrorCode.Invalid, 400));
+    }
+    ranges[key] = num;
+  }
 
   // Base query: only recipes the user has access to (deleted recipes are
   // filtered out in the model). Every filter goes in $and so that filters
@@ -538,6 +559,54 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
       ],
     });
   }
+
+  // Leave out everything in the user's saved list, including their own recipes
+  if (bSavedHidden) query.$and.push({ 'savedBy.userId': { $ne: userId } });
+
+  // Tags filter: recipes must have every tag asked for. A personal edit that
+  // changes the tags replaces the recipe's own tags for this user, as in the
+  // results below
+  const tagList = [
+    ...new Set(
+      String(tags ?? '')
+        .split(',')
+        .map(normaliseTag)
+        .filter(Boolean),
+    ),
+  ];
+  if (tagList.length > 0) {
+    const editsWithTags = await Edit.find({
+      userId,
+      isSuggestion: false,
+      tags: { $ne: null },
+    })
+      .select('recipeId tags')
+      .lean();
+    const editedRecipeIds = editsWithTags.map((edit) => edit.recipeId);
+    const matchingEditIds = editsWithTags
+      .filter((edit) => tagList.every((tag) => edit.tags!.includes(tag)))
+      .map((edit) => edit.recipeId);
+
+    query.$and.push({
+      $or: [
+        { _id: { $in: matchingEditIds } },
+        { _id: { $nin: editedRecipeIds }, tags: { $all: tagList } },
+      ],
+    });
+  }
+
+  // Total time (prep + cook) filter
+  const totalTime = { $add: ['$prepTime', '$cookTime'] };
+  if (ranges.minTime !== undefined)
+    query.$and.push({ $expr: { $gte: [totalTime, ranges.minTime] } });
+  if (ranges.maxTime !== undefined)
+    query.$and.push({ $expr: { $lte: [totalTime, ranges.maxTime] } });
+
+  // Serves filter
+  if (ranges.minServes !== undefined)
+    query.$and.push({ serves: { $gte: ranges.minServes } });
+  if (ranges.maxServes !== undefined)
+    query.$and.push({ serves: { $lte: ranges.maxServes } });
 
   // Category filter
   if (category) query.category = String(category);

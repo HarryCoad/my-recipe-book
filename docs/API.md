@@ -269,11 +269,17 @@ All of these need auth.
 | `category` | | Exact category |
 | `authorId` | | Only this author's recipes. Use your own ID for "my recipes" |
 | `bOnlySaved` | | `true` for only recipes the user saved |
+| `bHideSaved` | | `true` to leave out recipes the user saved, which includes their own. Can't be combined with `bOnlySaved` |
+| `tags` | | Comma-separated, e.g. `italian,quick`. Recipes must have every tag. Tags are [normalised](#tags) before matching |
+| `minTime` / `maxTime` | | Total minutes (`prepTime + cookTime`), inclusive |
+| `minServes` / `maxServes` | | Inclusive |
 | `sort` | newest | `oldest`, `title` or `popular` (most saved) |
 | `page` | `1` | |
 | `limit` | `10` | |
 
 Only returns recipes the user can see: their own, plus other users' public ones. Recipes without an author only appear with `bOnlySaved=true`.
+
+The `tags` filter uses the user's personal edit when it changes a recipe's tags, matching the tags shown in the results.
 
 **200:** note that `data` is the list itself:
 
@@ -281,7 +287,10 @@ Only returns recipes the user can see: their own, plus other users' public ones.
 { status, results: number, totalPages: number, currentPage: number, data: Recipe[] }
 ```
 
-**Errors:** `INVALID_ID` (400) for a malformed `authorId`.
+**Errors:**
+- `INVALID_ID` (400) for a malformed `authorId`.
+- `INVALID` (400) if a time or serves param isn't a number of 0 or more.
+- `INVALID_OPTIONS` (400) if both `bOnlySaved` and `bHideSaved` are `true`.
 
 ### `GET /recipes/tags`
 
