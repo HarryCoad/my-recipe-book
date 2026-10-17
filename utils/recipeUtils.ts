@@ -8,8 +8,19 @@ import { map, z } from 'zod';
 import AppError from './appError';
 import { ErrorCode } from 'translations/errorCodes';
 import Edit from '@models/editModel';
-import { RecipeDocument } from '@models/recipeModel';
+import { RecipeDocument, Saver } from '@models/recipeModel';
 import { normaliseTags } from './tagUtils';
+
+/** Whether the user is one of the recipe's savers */
+export const isSavedBy = (savedBy: Saver[], userId: string) =>
+  savedBy.some((saver) => saver.userId.equals(userId));
+
+/** Take the user off the recipe's savers. The caller saves the recipe */
+export const removeSaver = (recipe: RecipeDocument, userId: string) => {
+  recipe.savedBy = recipe.savedBy.filter(
+    (saver) => !saver.userId.equals(userId),
+  );
+};
 
 /**
  * Permanently remove a recipe nobody needs any more, along with all its edits.
@@ -30,7 +41,7 @@ export const releaseRecipeFromAuthor = async (
   authorId: string,
 ) => {
   // The author no longer has it saved
-  recipe.savedBy = recipe.savedBy.filter((user) => !user.equals(authorId));
+  removeSaver(recipe, authorId);
 
   if (recipe.savedBy.length === 0) {
     await removeRecipe(recipe);
@@ -146,7 +157,8 @@ export const constructRecipePayloadFromBody = (
     ingredients,
     steps,
     tags: normaliseTags(tags),
-    savedBy: [userId],
+    // Authors have their own recipes saved
+    savedBy: [{ userId, savedAt: new Date() }],
   };
 };
 export const constructUpdateRecipePayloadFromBody = (

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ErrorCode } from 'translations/errorCodes';
-import { as, createRecipe, createUser, recipeBody, saveRecipe } from './helpers';
+import {
+  as,
+  createRecipe,
+  createUser,
+  recipeBody,
+  saveRecipe,
+} from './helpers';
 
 describe('POST /recipes/create', () => {
   it('creates a recipe, saved by its author', async () => {
@@ -72,7 +78,10 @@ describe('POST /recipes/toggle-save', () => {
     await saveRecipe(bobby, recipe.id, false);
     const unsaved = await as(bobby).get(`/recipes/${recipe.id}`);
 
-    expect(saved.body.data.recipe).toMatchObject({ bSaved: true, savedCount: 2 });
+    expect(saved.body.data.recipe).toMatchObject({
+      bSaved: true,
+      savedCount: 2,
+    });
     expect(unsaved.body.data.recipe).toMatchObject({
       bSaved: false,
       savedCount: 1,
@@ -87,6 +96,21 @@ describe('POST /recipes/toggle-save', () => {
     const res = await saveRecipe(bobby, recipe.id);
 
     expect(res.status).toBe(404);
+  });
+
+  it("doesn't let the author unsave their own recipe", async () => {
+    const alice = await createUser('alice');
+    const recipe = await createRecipe(alice);
+
+    const res = await saveRecipe(alice, recipe.id, false);
+    const view = await as(alice).get(`/recipes/${recipe.id}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe(ErrorCode.Author_Cant_Unsave);
+    expect(view.body.data.recipe).toMatchObject({
+      bSaved: true,
+      savedCount: 1,
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import Edit, { EditDocument, EditStatus } from '@models/editModel';
-import Recipe, { RecipeDocument } from '@models/recipeModel';
+import Recipe, { RecipeDocument, Saver } from '@models/recipeModel';
 import User from '@models/userModel';
 import AppError from '@utils/appError';
 import catchAsync from '@utils/catchAsync';
@@ -13,16 +13,18 @@ import {
   EditSchema,
   escapeRegex,
   groupIngredientsBySubheader,
+  isSavedBy,
   RecipeSchema,
   releaseRecipeFromAuthor,
   removeRecipe,
+  removeSaver,
 } from '@utils/recipeUtils';
 import { ErrorCode } from 'translations/errorCodes';
 import { Status } from 'types/generalTypes';
 
 type FormattableRecipe = {
   authorId: Types.ObjectId | null;
-  savedBy?: Types.ObjectId[];
+  savedBy?: Saver[];
   ingredients: { subheader?: string | null }[];
 };
 
@@ -37,7 +39,9 @@ const formatRecipesForUser = async <T extends FormattableRecipe>(
 ) => {
   // One query for all the authors on the page
   const authorIds = [
-    ...new Set(recipes.flatMap((r) => (r.authorId ? [String(r.authorId)] : []))),
+    ...new Set(
+      recipes.flatMap((r) => (r.authorId ? [String(r.authorId)] : [])),
+    ),
   ];
   const authors = await User.find({ _id: { $in: authorIds } }).lean();
   const authorNames = new Map(authors.map((a) => [String(a._id), a.username]));
@@ -49,7 +53,7 @@ const formatRecipesForUser = async <T extends FormattableRecipe>(
     authorName: recipe.authorId
       ? (authorNames.get(String(recipe.authorId)) ?? null)
       : null,
-    bSaved: savedBy.some((id) => id.equals(userId)),
+    bSaved: isSavedBy(savedBy, userId),
     savedCount: savedBy.length,
   }));
 };
@@ -106,7 +110,7 @@ export const viweRecipe = catchAsync(async (req, res, next) => {
       // Public recipes, including ones whose author deleted them, so they can still be shared
       { bPrivate: false },
       // Private recipes whose author deleted them stay visible to people who saved them
-      { authorId: null, savedBy: userId },
+      { authorId: null, 'savedBy.userId': userId },
     ],
   });
 
@@ -176,13 +180,18 @@ export const toggleSaveRecipe = catchAsync(async (req, res, next) => {
   // 1) Check if recipe exists
   const recipe = await Recipe.findOne({ _id: recipeId });
 
-  // Can only save private recipes you own. Unsaving is always allowed, so a
-  // recipe that was made private can still be removed from your list
+  // Can only save private recipes you own. Unsaving is allowed for everyone
+  // else, so a recipe that was made private can still be removed from your list
   if (
     !recipe ||
     (bSave && recipe.bPrivate && !recipe.authorId?.equals(userId))
   ) {
     return next(new AppError(ErrorCode.Invalid_Recipe, 404));
+  }
+
+  // Authors always have their own recipes saved. To get rid of one, they delete it
+  if (!bSave && recipe.authorId?.equals(userId)) {
+    return next(new AppError(ErrorCode.Author_Cant_Unsave, 400));
   }
 
   // 2) Unsaving loses the user's personal edit, so make sure they've agreed to that
@@ -201,31 +210,21 @@ export const toggleSaveRecipe = catchAsync(async (req, res, next) => {
     }
   }
 
-  // 3) Add recipe to user's saved list
+  // 3) Update the recipe's savers. Saving again keeps the original savedAt
   if (bSave) {
-    // Update user saved list
-    if (
-      !req.user?.savedRecipes.some((saved) => saved.recipeId.equals(recipeId))
-    )
-      req.user!.savedRecipes.push({ recipeId });
-
-    // Update recipe saved list
-    if (!recipe.savedBy.some((id) => id.equals(userId)))
-      recipe.savedBy.push(userId);
+    if (!isSavedBy(recipe.savedBy, userId))
+      recipe.savedBy.push({
+        userId: new Types.ObjectId(String(userId)),
+        savedAt: new Date(),
+      });
   } else {
-    // Update user saved list
-    req.user!.savedRecipes = req.user!.savedRecipes.filter(
-      (saved) => !saved.recipeId.equals(recipeId),
-    );
-    // Update recipe saved list
-    recipe.savedBy = recipe.savedBy.filter((user) => !user.equals(userId));
+    removeSaver(recipe, userId);
 
     // A recipe with no author is only kept for the people who saved it
     if (!recipe.authorId && recipe.savedBy.length === 0) {
       await removeRecipe(recipe);
     }
   }
-  await req.user?.save();
   await recipe.save();
 
   res.status(200).json({
@@ -290,7 +289,7 @@ export const updateSavedRecipe = catchAsync(async (req, res, next) => {
   // 3) Check recipe exists
   const recipe = await Recipe.findOne({
     _id: req.body.id,
-    savedBy: { $elemMatch: { $eq: userId } },
+    'savedBy.userId': userId,
   });
 
   if (!recipe) {
@@ -345,12 +344,7 @@ export const deleteRecipe = catchAsync(async (req, res, next) => {
   }
 
   await releaseRecipeFromAuthor(recipe, userId);
-  req.user!.savedRecipes = req.user!.savedRecipes.filter(
-    (saved) => !saved.recipeId.equals(recipe.id),
-  );
-
   await recipe.save();
-  await req.user!.save();
 
   res.status(200).json({
     status: Status.Success,
@@ -517,8 +511,12 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
       bSavedOnly
         ? // Your saved list includes recipes whose author deleted them
           {
-            savedBy: userId,
-            $or: [{ authorId: userId }, { bPrivate: false }, { authorId: null }],
+            'savedBy.userId': userId,
+            $or: [
+              { authorId: userId },
+              { bPrivate: false },
+              { authorId: null },
+            ],
           }
         : // General search hides recipes whose author deleted them
           {

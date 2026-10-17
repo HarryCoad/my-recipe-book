@@ -19,5 +19,6 @@ export enum ErrorCode {
   MISSING_FIELDS = 'MISSING_FIELDS',
   Current_Password_Invalid = 'INVALID_CURRENT_PASSWORD',
   Confirm_Lose_Edits = 'CONFIRM_LOSE_EDITS',
+  Author_Cant_Unsave = 'AUTHOR_CANT_UNSAVE',
   Suggestion_Already_Reviewed = 'SUGGESTION_ALREADY_REVIEWED',
 }

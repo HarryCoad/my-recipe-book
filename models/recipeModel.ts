@@ -9,9 +9,10 @@ import mongoose, { Document, Query, Schema, Types } from 'mongoose';
 import { ErrorCode } from '../translations/errorCodes';
 import { normaliseTags } from '../utils/tagUtils';
 
-export interface SavedRecipe {
-  recipeId: Types.ObjectId;
-  personalEdits?: Types.ObjectId;
+/** A user who has saved the recipe. savedAt keeps the order they saved things in */
+export interface Saver {
+  userId: Types.ObjectId;
+  savedAt: Date;
 }
 
 export type Ingredient = {
@@ -35,7 +36,7 @@ export interface RecipeDocument extends Document<string> {
   ingredients: Ingredient[];
   steps: string[];
   tags: string[];
-  savedBy: Types.ObjectId[];
+  savedBy: Saver[];
 
   bDeleted: boolean;
 }
@@ -87,7 +88,14 @@ const RecipeSchema = new Schema<RecipeDocument>(
     // The setter cleans tags on every write, including ones that skip the
     // request payload builders (e.g. the seed import script)
     tags: { type: [String], set: normaliseTags },
-    savedBy: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+    // The only record of who saved what: users don't keep their own list
+    savedBy: [
+      {
+        _id: false,
+        userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        savedAt: { type: Date, default: Date.now },
+      },
+    ],
     bDeleted: { type: Boolean, default: false },
   },
   {
@@ -96,6 +104,9 @@ const RecipeSchema = new Schema<RecipeDocument>(
     },
   },
 );
+
+// For looking up a user's saved recipes
+RecipeSchema.index({ 'savedBy.userId': 1 });
 
 // Filter out any soft deleted recipes
 // Uses where() rather than setQuery() so it adds to the query instead of overwriting an existing $or

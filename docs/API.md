@@ -207,7 +207,7 @@ No auth needed. Body: `{ "password", "passwordConfirm" }`. Logs the user in, wit
 
 ### `GET /users/user-details`
 
-**200:** `{ status, data: User & { savedRecipes: { recipeId }[] } }`
+**200:** `{ status, data: User }`. Saved recipes aren't included: use `GET /users/saved-recipes`.
 
 ### `PATCH /users/update-me`
 
@@ -229,7 +229,9 @@ Body: `{ "currentPassword", "password", "passwordConfirm" }`. Returns a new toke
 
 ### `GET /users/saved-recipes`
 
-Returns only the IDs of saved recipes. For a list to show in the UI, use `GET /recipes/search?bOnlySaved=true`.
+Returns only the IDs of saved recipes, in the order the user saved them (oldest first). This includes recipes the user created, since authors have their own recipes saved. Saving a recipe that's already saved keeps its original `savedAt`. For a list to show in the UI, use `GET /recipes/search?bOnlySaved=true`.
+
+**200:** `{ status, data: { recipeId: string, savedAt: string }[] }`
 
 ## Recipes endpoints
 
@@ -320,6 +322,7 @@ Query: `?original=true` returns the recipe without the user's personal edit.
 - `MISSING_FIELDS` (400) if `bSave` isn't a boolean.
 - `INVALID_RECIPE` (404) if the recipe doesn't exist, or it's someone else's private recipe and the user is trying to save it.
 - `CONFIRM_LOSE_EDITS` (400).
+- `AUTHOR_CANT_UNSAVE` (400) if the user tries to unsave a recipe they wrote. Authors always have their own recipes saved. To remove one, they delete it.
 
 ### `PATCH /recipes/update-own-recipe`
 

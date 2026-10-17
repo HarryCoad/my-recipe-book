@@ -5,7 +5,6 @@ import crypto from 'crypto';
 
 import { ErrorCode } from 'translations/errorCodes';
 import AppError from '@utils/appError';
-import { SavedRecipe } from './recipeModel';
 
 // Define User interface
 export interface UserDocument extends Document<string> {
@@ -17,7 +16,6 @@ export interface UserDocument extends Document<string> {
   passwordResetToken?: string;
   passwordResetExpires?: string;
   photo?: string;
-  savedRecipes: SavedRecipe[];
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -74,15 +72,6 @@ const UserSchema = new Schema<UserDocument>(
       type: String,
       default: 'default.jpg',
     },
-    savedRecipes: [
-      {
-        recipeId: {
-          type: Schema.Types.ObjectId,
-          ref: 'Recipe',
-          required: true,
-        },
-      },
-    ],
     active: {
       type: Boolean,
       default: true,

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ErrorCode } from 'translations/errorCodes';
-import { api, as, createRecipe, createUser } from './helpers';
+import { api, as, createRecipe, createUser, saveRecipe } from './helpers';
+
+const savedIds = async (user: Awaited<ReturnType<typeof createUser>>) => {
+  const res = await as(user).get('/users/saved-recipes');
+  return res.body.data.map((saved: { recipeId: string }) => saved.recipeId);
+};
 
 describe('signup and login', () => {
   it('returns the user id on signup', async () => {
@@ -102,5 +107,70 @@ describe('PATCH /users/update-me', () => {
       username: 'alice',
       email: 'alice@test.com',
     });
+  });
+});
+
+describe('GET /users/saved-recipes', () => {
+  it('includes recipes the user created', async () => {
+    const alice = await createUser('alice');
+    const recipe = await createRecipe(alice);
+
+    const res = await as(alice).get('/users/saved-recipes');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([
+      { recipeId: recipe.id, savedAt: expect.any(String) },
+    ]);
+  });
+
+  it('lists recipes in the order they were saved', async () => {
+    const alice = await createUser('alice');
+    const bobby = await createUser('bobby');
+    const first = await createRecipe(alice, { title: 'First' });
+    const second = await createRecipe(alice, { title: 'Second' });
+
+    await saveRecipe(bobby, second.id);
+    await saveRecipe(bobby, first.id);
+
+    expect(await savedIds(bobby)).toEqual([second.id, first.id]);
+  });
+
+  it('keeps the original position when a recipe is saved again', async () => {
+    const alice = await createUser('alice');
+    const bobby = await createUser('bobby');
+    const first = await createRecipe(alice, { title: 'First' });
+    const second = await createRecipe(alice, { title: 'Second' });
+    await saveRecipe(bobby, first.id);
+    await saveRecipe(bobby, second.id);
+
+    await saveRecipe(bobby, first.id);
+
+    expect(await savedIds(bobby)).toEqual([first.id, second.id]);
+  });
+
+  it('leaves out unsaved and deleted recipes', async () => {
+    const alice = await createUser('alice');
+    const bobby = await createUser('bobby');
+    const kept = await createRecipe(alice, { title: 'Kept' });
+    const unsaved = await createRecipe(alice, { title: 'Unsaved' });
+    const deleted = await createRecipe(bobby, { title: 'Deleted' });
+    await saveRecipe(bobby, kept.id);
+    await saveRecipe(bobby, unsaved.id);
+
+    await saveRecipe(bobby, unsaved.id, false);
+    await as(bobby).post('/recipes/delete', { id: deleted.id });
+
+    expect(await savedIds(bobby)).toEqual([kept.id]);
+  });
+
+  it("doesn't include other users' saves", async () => {
+    const alice = await createUser('alice');
+    const bobby = await createUser('bobby');
+    const recipe = await createRecipe(alice);
+    await saveRecipe(bobby, recipe.id);
+
+    const ids = await savedIds(bobby);
+
+    expect(ids).toEqual([recipe.id]);
   });
 });

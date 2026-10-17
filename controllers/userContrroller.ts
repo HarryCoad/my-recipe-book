@@ -1,3 +1,5 @@
+import { Types } from 'mongoose';
+import Recipe from '@models/recipeModel';
 import AppError from '@utils/appError';
 import catchAsync from '@utils/catchAsync';
 import { ErrorCode } from 'translations/errorCodes';
@@ -12,12 +14,27 @@ export const userDetails = catchAsync(async (req, res, next) => {
     data: user,
   });
 });
+/** The IDs of the recipes the user has saved, in the order they saved them */
 export const savedRecipes = catchAsync(async (req, res, next) => {
-  const { savedRecipes } = req.user!;
+  // Projections aren't cast, so convert the ID first
+  const userId = new Types.ObjectId(String(req.user!.id));
+
+  // The projection keeps only the user's own entry, so other savers aren't loaded
+  const recipes = await Recipe.find(
+    { 'savedBy.userId': userId },
+    { savedBy: { $elemMatch: { userId } } },
+  ).lean();
+
+  const saved = recipes
+    .map((recipe) => ({
+      recipeId: recipe._id,
+      savedAt: recipe.savedBy[0].savedAt,
+    }))
+    .sort((a, b) => a.savedAt.getTime() - b.savedAt.getTime());
 
   res.status(200).json({
     status: Status.Success,
-    data: savedRecipes || [],
+    data: saved,
   });
 });
 /**

@@ -8,7 +8,11 @@ import User, { UserDocument } from '@models/userModel';
 import AppError from '@utils/appError';
 import catchAsync from '@utils/catchAsync';
 import { sendEmail } from '@utils/email';
-import { releaseRecipeFromAuthor, removeRecipe } from '@utils/recipeUtils';
+import {
+  releaseRecipeFromAuthor,
+  removeRecipe,
+  removeSaver,
+} from '@utils/recipeUtils';
 import { ErrorCode } from 'translations/errorCodes';
 import { Status } from 'types/generalTypes';
 import { promisify } from 'util';
@@ -238,9 +242,9 @@ export const deleteMe = catchAsync(async (req, res, next) => {
 
   // 2) Other recipes they saved: unsave them, removing any that no longer
   // have an author or anyone else saving them
-  const savedRecipes = await Recipe.find({ savedBy: userId });
+  const savedRecipes = await Recipe.find({ 'savedBy.userId': userId });
   for (const recipe of savedRecipes) {
-    recipe.savedBy = recipe.savedBy.filter((user) => !user.equals(userId));
+    removeSaver(recipe, userId);
     if (!recipe.authorId && recipe.savedBy.length === 0) {
       await removeRecipe(recipe);
     }
@@ -252,7 +256,7 @@ export const deleteMe = catchAsync(async (req, res, next) => {
 
   await User.findByIdAndUpdate(
     userId,
-    { active: false, savedRecipes: [] },
+    { active: false },
     {
       runValidators: false,
     },
