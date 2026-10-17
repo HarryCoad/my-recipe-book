@@ -36,7 +36,7 @@ These were decided deliberately. Keep them consistent:
 - `Edit.tags` defaults to `undefined`, not `[]`, so "tags not edited" is different from "all tags removed". Empty `ingredients` or `steps` mean "not edited".
 - Users must save a recipe before editing or suggesting. Unsaving deletes their personal edit, and requires `bConfirmLoseEdits: true` if one exists.
 - **Recipes without an author:** deleting a recipe, or an account, goes through `releaseRecipeFromAuthor`. With other savers, the recipe stays with `authorId: null`, is frozen, has suggestions turned off and is hidden from general search. It's removed once nobody has it saved. Account deletion also unsaves the user everywhere and deletes their edits.
-- **Responses never include `savedBy`** (it would expose other users' IDs). Every recipe response goes through `formatRecipesForUser` in `recipeController.ts`, which adds `authorName`, `bSaved` and `savedCount`.
+- **Responses never include `savedBy`** (it would expose other users' IDs). Every recipe response goes through `formatRecipesForUser` in `recipeController.ts`, which adds `authorName`, `bSaved` and `savedCount`, and groups ingredients by subheader. Edit responses go through `formatEdits`, which also groups ingredients. Grouping only happens in responses: stored order is unchanged.
 - Recipe visibility: the author, or `bPrivate: false`. Recipes without an author are also visible to their savers.
 
 ## Gotchas

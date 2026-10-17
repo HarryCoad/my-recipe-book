@@ -12,6 +12,7 @@ import {
   constructUpdateRecipePayloadFromBody,
   EditSchema,
   escapeRegex,
+  groupIngredientsBySubheader,
   RecipeSchema,
   releaseRecipeFromAuthor,
   removeRecipe,
@@ -19,14 +20,18 @@ import {
 import { ErrorCode } from 'translations/errorCodes';
 import { Status } from 'types/generalTypes';
 
+type FormattableRecipe = {
+  authorId: Types.ObjectId | null;
+  savedBy?: Types.ObjectId[];
+  ingredients: { subheader?: string | null }[];
+};
+
 /**
  * Prepare plain recipe objects for a response: add the author's username and
- * whether the user has saved each one. savedBy is replaced with a count so
- * other users' IDs aren't sent to the client
+ * whether the user has saved each one, and group ingredients by subheader.
+ * savedBy is replaced with a count so other users' IDs aren't sent to the client
  */
-const formatRecipesForUser = async <
-  T extends { authorId: Types.ObjectId | null; savedBy?: Types.ObjectId[] },
->(
+const formatRecipesForUser = async <T extends FormattableRecipe>(
   recipes: T[],
   userId: string,
 ) => {
@@ -39,6 +44,7 @@ const formatRecipesForUser = async <
 
   return recipes.map(({ savedBy = [], ...recipe }) => ({
     ...recipe,
+    ingredients: groupIngredientsBySubheader(recipe.ingredients),
     // null when the author deleted the recipe or their account
     authorName: recipe.authorId
       ? (authorNames.get(String(recipe.authorId)) ?? null)
@@ -47,12 +53,20 @@ const formatRecipesForUser = async <
     savedCount: savedBy.length,
   }));
 };
-const formatRecipeForUser = async <
-  T extends { authorId: Types.ObjectId | null; savedBy?: Types.ObjectId[] },
->(
+const formatRecipeForUser = async <T extends FormattableRecipe>(
   recipe: T,
   userId: string,
 ) => (await formatRecipesForUser([recipe], userId))[0];
+
+/** Plain copies of edits for a response, with ingredients grouped by subheader */
+const formatEdits = (edits: EditDocument[]) =>
+  edits.map((edit) => {
+    const plain = edit.toObject();
+    return {
+      ...plain,
+      ingredients: groupIngredientsBySubheader(plain.ingredients),
+    };
+  });
 
 /** Create a new recipe */
 export const createRecipe = catchAsync(async (req, res, next) => {
@@ -143,7 +157,7 @@ export const viewRecipeSuggestions = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: Status.Success,
-    data: { edits },
+    data: { edits: formatEdits(edits) },
   });
 });
 /**
@@ -392,7 +406,7 @@ export const reviewSuggestion = catchAsync(async (req, res, next) => {
     status: Status.Success,
     data: {
       recipe: await formatRecipeForUser(recipe.toObject(), req.user!.id),
-      suggestion,
+      suggestion: formatEdits([suggestion])[0],
     },
   });
 });
@@ -408,7 +422,7 @@ export const mySuggestions = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: Status.Success,
     results: suggestions.length,
-    data: { suggestions },
+    data: { suggestions: formatEdits(suggestions) },
   });
 });
 /**

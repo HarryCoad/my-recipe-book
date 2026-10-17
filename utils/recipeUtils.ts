@@ -43,6 +43,28 @@ export const releaseRecipeFromAuthor = async (
   }
 };
 
+/**
+ * Order ingredients so ones sharing a subheader are together. Ingredients
+ * without a subheader come first, then each subheader in the order it first
+ * appears. The order within each group is kept
+ */
+export const groupIngredientsBySubheader = <
+  T extends { subheader?: string | null },
+>(
+  ingredients: T[],
+): T[] => {
+  const groups = new Map<string | null, T[]>([[null, []]]);
+
+  for (const ingredient of ingredients) {
+    // '' and ' sauce ' count the same as no subheader and 'sauce'
+    const key = ingredient.subheader?.trim() || null;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(ingredient);
+  }
+
+  return [...groups.values()].flat();
+};
+
 /** Escape user input so it is matched literally inside a RegExp */
 export const escapeRegex = (str: string) =>
   str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

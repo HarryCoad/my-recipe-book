@@ -77,7 +77,7 @@ Every recipe response, single or in a list, has this shape:
   serves: number;
   prepTime: number;            // minutes
   cookTime: number;            // minutes
-  ingredients: {
+  ingredients: {               // grouped by subheader, see below
     id: string;
     subheader: string | null;  // optional heading to group ingredients, e.g. "For the sauce"
     quantity: number;
@@ -95,6 +95,8 @@ Every recipe response, single or in a list, has this shape:
 When the current user has made a [personal edit](#personal-edits), its `ingredients`, `steps` and `tags` replace the originals in every response, unless the request asks for the original.
 
 Responses may also include `authorType`, an internal field the UI can ignore.
+
+**Ingredient order:** in every response, recipes and edits alike, ingredients come back grouped by subheader. Ingredients without a subheader come first, then each subheader in the order it's first used, and the order within each group is kept. So the UI can show a heading each time `subheader` changes. Subheaders that differ only by spaces at either end count as the same, and an empty subheader counts as none. Ingredients are stored in the order they were sent, and only grouped in responses.
 
 **Category** is one of: `Starter`, `Small Plate`, `Sharer`, `Main`, `Dessert`, `Breakfast`, `Lunch`, `Cocktail`, `Baking`.
 
