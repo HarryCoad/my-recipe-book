@@ -126,7 +126,7 @@ Personal edits and suggestions are both stored as edits:
 ### User
 
 ```ts
-{ id: string; username: string; email: string; photo: string }
+{ id: string; username: string; email: string; photo: string; bPrivateSaves: boolean }
 ```
 
 ## How the features work
@@ -212,11 +212,11 @@ No auth needed. Body: `{ "password", "passwordConfirm" }`. Logs the user in, wit
 
 ### `PATCH /users/update-me`
 
-Body: `{ "username" }`. Email can't be changed for now, and passwords use `/update-password`.
+Body: `{ "username", "bPrivateSaves" }`, both optional. `bPrivateSaves: true` hides the user's saved recipes from their profile for everyone else (default `false`). Email can't be changed for now, and passwords use `/update-password`.
 
 **200:** `{ status, data: { user: User } }`
 
-**Errors:** `USERNAME_TAKEN`, and `INVALID_FIELDNAME` for any other field, both 400. Nothing is changed when the request is rejected.
+**Errors:** `USERNAME_TAKEN`, `INVALID` if `bPrivateSaves` isn't a boolean, and `INVALID_FIELDNAME` for any other field, all 400. Nothing is changed when the request is rejected.
 
 ### `PATCH /users/update-password`
 
@@ -233,6 +233,14 @@ Body: `{ "currentPassword", "password", "passwordConfirm" }`. Returns a new toke
 Returns only the IDs of saved recipes, in the order the user saved them (oldest first). This includes recipes the user created, since authors have their own recipes saved. Saving a recipe that's already saved keeps its original `savedAt`. For a list to show in the UI, use `GET /recipes/search?bOnlySaved=true`.
 
 **200:** `{ status, data: { recipeId: string, savedAt: string }[] }`
+
+### `GET /users/:id`
+
+Another user's public profile, for linking from `authorName` (using `authorId`) or a suggestion's `userName` (using `userId`). Never includes their email. For the recipes on their profile, use `GET /recipes/search?savedBy=<id>`.
+
+**200:** `{ status, data: { user: { id, username, photo, bPrivateSaves } } }`
+
+**Errors:** `INVALID_ID` (404) if the ID is malformed or no active user has it.
 
 ## Recipes endpoints
 
@@ -270,6 +278,7 @@ All of these need auth.
 | `category` | | Exact category |
 | `authorId` | | Only this author's recipes. Use your own ID for "my recipes" |
 | `bOnlySaved` | | `true` for only recipes the user saved |
+| `savedBy` | | A user's ID, for their profile: only recipes they saved, including ones they wrote. Refused if they've set `bPrivateSaves`, unless it's the user's own ID |
 | `bHideSaved` | | `true` to leave out recipes the user saved, which includes their own. Can't be combined with `bOnlySaved` |
 | `tags` | | Comma-separated, e.g. `italian,quick`. Recipes must have every tag. Tags are [normalised](#tags) before matching |
 | `minTime` / `maxTime` | | Total minutes (`prepTime + cookTime`), inclusive |
@@ -278,7 +287,7 @@ All of these need auth.
 | `page` | `1` | |
 | `limit` | `10` | |
 
-Only returns recipes the user can see: their own, plus other users' public ones. Recipes without an author only appear with `bOnlySaved=true`.
+Only returns recipes the user can see: their own, plus other users' public ones. Recipes without an author only appear with `bOnlySaved=true` or `savedBy`. With `savedBy`, visibility is still the viewer's, so another user's profile never shows their private recipes, or ones they saved before the author made them private. `bSaved` is always about the viewer.
 
 The `tags` filter uses the user's personal edit when it changes a recipe's tags, matching the tags shown in the results.
 
@@ -294,7 +303,8 @@ The `tags` filter uses the user's personal edit when it changes a recipe's tags,
 `pendingSuggestions` is how many suggestions are waiting for the author to review. It's only counted on the user's own recipes, and is always `0` on anyone else's.
 
 **Errors:**
-- `INVALID_ID` (400) for a malformed `authorId`.
+- `INVALID_ID` (400) for a malformed `authorId` or `savedBy`, and (404) if no active user has the `savedBy` ID.
+- `SAVES_PRIVATE` (403) if the `savedBy` user has made their saves private.
 - `INVALID` (400) if a time or serves param isn't a number of 0 or more.
 - `INVALID_OPTIONS` (400) if both `bOnlySaved` and `bHideSaved` are `true`.
 

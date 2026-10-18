@@ -20,5 +20,6 @@ export enum ErrorCode {
   Current_Password_Invalid = 'INVALID_CURRENT_PASSWORD',
   Confirm_Lose_Edits = 'CONFIRM_LOSE_EDITS',
   Author_Cant_Unsave = 'AUTHOR_CANT_UNSAVE',
+  Saves_Private = 'SAVES_PRIVATE',
   Suggestion_Already_Reviewed = 'SUGGESTION_ALREADY_REVIEWED',
 }

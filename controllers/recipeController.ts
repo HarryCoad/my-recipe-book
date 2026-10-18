@@ -504,6 +504,7 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
     bOnlySaved,
     bHideSaved,
     tags,
+    savedBy,
   } = req.query;
 
   // Convert query params to appropriate types
@@ -513,8 +514,10 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
 
   // IDs are cast to ObjectIds up front because the aggregate used for
   // 'popular' sorting doesn't cast them automatically like find() does
-  if (authorId && !Types.ObjectId.isValid(String(authorId))) {
-    return next(new AppError(ErrorCode.Invalid_Id, 400));
+  for (const id of [authorId, savedBy]) {
+    if (id && !Types.ObjectId.isValid(String(id))) {
+      return next(new AppError(ErrorCode.Invalid_Id, 400));
+    }
   }
   const userId = new Types.ObjectId(String(req.user!.id));
   const bSavedOnly = bOnlySaved === 'true';
@@ -522,6 +525,19 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
 
   if (bSavedOnly && bSavedHidden) {
     return next(new AppError(ErrorCode.Invalid_Options, 400));
+  }
+
+  // Another user's saved recipes, for their profile. Only if they haven't
+  // made their saves private, unless it's the user themselves
+  const saverId = savedBy ? new Types.ObjectId(String(savedBy)) : null;
+  if (saverId && !saverId.equals(userId)) {
+    const saver = await User.findById(saverId).lean();
+    if (!saver) {
+      return next(new AppError(ErrorCode.Invalid_Id, 404));
+    }
+    if (saver.bPrivateSaves) {
+      return next(new AppError(ErrorCode.Saves_Private, 403));
+    }
   }
 
   // Range filters. Missing ones are undefined, anything else must be a
@@ -553,15 +569,27 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
               { authorId: null },
             ],
           }
-        : // General search hides recipes whose author deleted them
-          {
-            $or: [
-              { authorId: userId },
-              { bPrivate: false, authorId: { $ne: null } },
-            ],
-          },
+        : saverId
+          ? // Someone's saved list, as the user is allowed to see it. Includes
+            // recipes whose author deleted them, like your own saved list
+            {
+              $or: [
+                { authorId: userId },
+                { bPrivate: false },
+                { authorId: null, 'savedBy.userId': userId },
+              ],
+            }
+          : // General search hides recipes whose author deleted them
+            {
+              $or: [
+                { authorId: userId },
+                { bPrivate: false, authorId: { $ne: null } },
+              ],
+            },
     ],
   };
+
+  if (saverId) query.$and.push({ 'savedBy.userId': saverId });
 
   // Search filter (title or description match)
   if (search) {

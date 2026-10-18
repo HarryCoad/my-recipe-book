@@ -13,6 +13,7 @@ export enum UserRoutes {
   User_Details = '/user-details',
   Saved_Recipes = '/saved-recipes',
   Update_Me = '/update-me',
+  Profile = '/:id',
 }
 
 const router = express.Router();
@@ -30,5 +31,7 @@ router.get(UserRoutes.User_Details, userController.userDetails);
 router.patch(UserRoutes.Update_Me, userController.updateMe);
 router.patch(UserRoutes.Update_Password, authController.updatePassword);
 router.delete(UserRoutes.Delete_Accouunt, authController.deleteMe);
+// Last, so /:id doesn't catch the named routes above
+router.get(UserRoutes.Profile, userController.userProfile);
 
 export default router;

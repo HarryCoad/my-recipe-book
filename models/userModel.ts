@@ -16,6 +16,7 @@ export interface UserDocument extends Document<string> {
   passwordResetToken?: string;
   passwordResetExpires?: string;
   photo?: string;
+  bPrivateSaves: boolean;
   active: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -72,6 +73,8 @@ const UserSchema = new Schema<UserDocument>(
       type: String,
       default: 'default.jpg',
     },
+    // Hides the user's saved recipes from their profile for everyone else
+    bPrivateSaves: { type: Boolean, default: false },
     active: {
       type: Boolean,
       default: true,

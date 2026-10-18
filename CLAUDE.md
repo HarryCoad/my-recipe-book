@@ -39,6 +39,7 @@ These were decided deliberately. Keep them consistent:
 - **Recipes without an author:** deleting a recipe, or an account, goes through `releaseRecipeFromAuthor`. With other savers, the recipe stays with `authorId: null`, is frozen, has suggestions turned off and is hidden from general search. It's removed once nobody has it saved. Account deletion also unsaves the user everywhere and deletes their edits.
 - **Responses never include `savedBy`** (it would expose other users' IDs). Every recipe response goes through `formatRecipesForUser` in `recipeController.ts`, which adds `authorName`, `bSaved` and `savedCount`, and groups ingredients by subheader. Edit responses go through `formatEdits`, which adds `userName` and also groups ingredients. Grouping only happens in responses: stored order is unchanged.
 - Recipe visibility: the author, or `bPrivate: false`. Recipes without an author are also visible to their savers.
+- **Profiles:** `GET /users/:id` returns only public fields (never email). A profile's recipes come from `search?savedBy=<id>`, which is filtered by the *viewer's* visibility and refused with `SAVES_PRIVATE` when the owner has `bPrivateSaves: true` (default `false`).
 
 ## Gotchas
 
