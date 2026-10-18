@@ -675,16 +675,44 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
     userEdits.map((edit) => [String(edit.recipeId), edit]),
   );
 
+  // Count pending suggestions on the user's own recipes, so the UI can flag
+  // ones waiting for review. Only authors review suggestions, so other
+  // recipes are left at 0
+  const ownRecipeIds = recipes
+    .filter((recipe) => userId.equals(recipe.authorId))
+    .map((recipe) => recipe._id);
+  const pendingCounts =
+    ownRecipeIds.length > 0
+      ? await Edit.aggregate([
+          {
+            $match: {
+              recipeId: { $in: ownRecipeIds },
+              isSuggestion: true,
+              status: EditStatus.PENDING,
+            },
+          },
+          { $group: { _id: '$recipeId', count: { $sum: 1 } } },
+        ])
+      : [];
+  const pendingByRecipe = new Map(
+    pendingCounts.map((p) => [String(p._id), p.count as number]),
+  );
+
+  const formatted = await formatRecipesForUser(
+    recipes.map((recipe) =>
+      applyEditToRecipe(recipe, editsByRecipe.get(String(recipe._id))),
+    ),
+    req.user!.id,
+  );
+
   res.status(200).json({
     status: Status.Success,
     results: recipes.length,
     totalPages: Math.ceil(total / limitNum),
     currentPage: pageNum,
-    data: await formatRecipesForUser(
-      recipes.map((recipe) =>
-        applyEditToRecipe(recipe, editsByRecipe.get(String(recipe._id))),
-      ),
-      req.user!.id,
-    ),
+    data: formatted.map((recipe) => ({
+      ...recipe,
+      pendingSuggestions: pendingByRecipe.get(String(recipe._id)) ?? 0,
+    })),
   });
 });

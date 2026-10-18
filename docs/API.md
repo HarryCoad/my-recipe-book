@@ -285,8 +285,13 @@ The `tags` filter uses the user's personal edit when it changes a recipe's tags,
 **200:** note that `data` is the list itself:
 
 ```ts
-{ status, results: number, totalPages: number, currentPage: number, data: Recipe[] }
+{
+  status, results: number, totalPages: number, currentPage: number,
+  data: (Recipe & { pendingSuggestions: number })[]
+}
 ```
+
+`pendingSuggestions` is how many suggestions are waiting for the author to review. It's only counted on the user's own recipes, and is always `0` on anyone else's.
 
 **Errors:**
 - `INVALID_ID` (400) for a malformed `authorId`.

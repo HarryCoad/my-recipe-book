@@ -204,3 +204,26 @@ describe('GET /recipes/my-suggestions', () => {
     });
   });
 });
+
+describe('pendingSuggestions in search results', () => {
+  it("counts pending suggestions on the author's recipes", async () => {
+    const reviewedId = await suggestAndGetId(bobby, { steps: ['Bobby step'] });
+    await review(reviewedId, false);
+    await suggest(bobby, { steps: ['Another step'] });
+    await suggest(carol, { steps: ['Carol step'] });
+
+    const newest = await as(alice).get('/recipes/search');
+    const popular = await as(alice).get('/recipes/search?sort=popular');
+
+    expect(newest.body.data[0].pendingSuggestions).toBe(2);
+    expect(popular.body.data[0].pendingSuggestions).toBe(2);
+  });
+
+  it("is 0 on recipes the user didn't write", async () => {
+    await suggest(bobby, { steps: ['Bobby step'] });
+
+    const res = await as(bobby).get('/recipes/search');
+
+    expect(res.body.data[0].pendingSuggestions).toBe(0);
+  });
+});
