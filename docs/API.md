@@ -113,6 +113,7 @@ Personal edits and suggestions are both stored as edits:
   id: string;
   recipeId: string;           // in /my-suggestions this is { id, title } instead
   userId: string;
+  userName: string | null;    // username of who made it, null if their account was deleted
   isSuggestion: boolean;
   ingredients: Ingredient[];  // empty means "not changed"
   steps: string[];            // empty means "not changed"

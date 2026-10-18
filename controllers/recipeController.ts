@@ -65,15 +65,26 @@ const formatRecipeForUser = async <T extends FormattableRecipe>(
   userId: string,
 ) => (await formatRecipesForUser([recipe], userId))[0];
 
-/** Plain copies of edits for a response, with ingredients grouped by subheader */
-const formatEdits = (edits: EditDocument[]) =>
-  edits.map((edit) => {
+/**
+ * Plain copies of edits for a response, with the username of who made each
+ * one and ingredients grouped by subheader
+ */
+const formatEdits = async (edits: EditDocument[]) => {
+  // One query for all the users on the page
+  const userIds = [...new Set(edits.map((edit) => String(edit.userId)))];
+  const users = await User.find({ _id: { $in: userIds } }).lean();
+  const userNames = new Map(users.map((u) => [String(u._id), u.username]));
+
+  return edits.map((edit) => {
     const plain = edit.toObject();
     return {
       ...plain,
+      // null if their account has since been deleted
+      userName: userNames.get(String(plain.userId)) ?? null,
       ingredients: groupIngredientsBySubheader(plain.ingredients),
     };
   });
+};
 
 /** Create a new recipe */
 export const createRecipe = catchAsync(async (req, res, next) => {
@@ -164,7 +175,7 @@ export const viewRecipeSuggestions = catchAsync(async (req, res, next) => {
 
   res.status(200).json({
     status: Status.Success,
-    data: { edits: formatEdits(edits) },
+    data: { edits: await formatEdits(edits) },
   });
 });
 /**
@@ -403,7 +414,7 @@ export const reviewSuggestion = catchAsync(async (req, res, next) => {
     status: Status.Success,
     data: {
       recipe: await formatRecipeForUser(recipe.toObject(), req.user!.id),
-      suggestion: formatEdits([suggestion])[0],
+      suggestion: (await formatEdits([suggestion]))[0],
     },
   });
 });
@@ -419,7 +430,7 @@ export const mySuggestions = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: Status.Success,
     results: suggestions.length,
-    data: { suggestions: formatEdits(suggestions) },
+    data: { suggestions: await formatEdits(suggestions) },
   });
 });
 /**

@@ -75,6 +75,18 @@ describe('GET /recipes/view-suggestions/:id', () => {
     });
   });
 
+  it('includes the username of who made each suggestion', async () => {
+    await suggest(bobby, { steps: ['Bobby step'] });
+    await suggest(carol, { steps: ['Carol step'] });
+
+    const res = await as(alice).get(`/recipes/view-suggestions/${recipeId}`);
+
+    expect(res.body.data.edits).toMatchObject([
+      { userId: carol.id, userName: 'carol' },
+      { userId: bobby.id, userName: 'bobby' },
+    ]);
+  });
+
   it("doesn't include personal edits", async () => {
     await as(bobby).post('/recipes/edit-recipe', {
       id: recipeId,
@@ -90,7 +102,9 @@ describe('GET /recipes/view-suggestions/:id', () => {
     const id = await suggestAndGetId(bobby, { steps: ['Bobby step'] });
     await review(id, false);
 
-    const pending = await as(alice).get(`/recipes/view-suggestions/${recipeId}`);
+    const pending = await as(alice).get(
+      `/recipes/view-suggestions/${recipeId}`,
+    );
     const all = await as(alice).get(
       `/recipes/view-suggestions/${recipeId}?bShowAll=true`,
     );
