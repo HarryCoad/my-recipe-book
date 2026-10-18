@@ -21,5 +21,13 @@ export enum ErrorCode {
   Confirm_Lose_Edits = 'CONFIRM_LOSE_EDITS',
   Author_Cant_Unsave = 'AUTHOR_CANT_UNSAVE',
   Saves_Private = 'SAVES_PRIVATE',
+  Invalid_Url = 'INVALID_URL',
+  Url_Not_Allowed = 'URL_NOT_ALLOWED',
+  Fetch_Failed = 'FETCH_FAILED',
+  Invalid_Image = 'INVALID_IMAGE',
+  Image_Too_Large = 'IMAGE_TOO_LARGE',
+  No_Recipe_Found = 'NO_RECIPE_FOUND',
+  Import_Failed = 'IMPORT_FAILED',
+  Too_Many_Imports = 'TOO_MANY_IMPORTS',
   Suggestion_Already_Reviewed = 'SUGGESTION_ALREADY_REVIEWED',
 }

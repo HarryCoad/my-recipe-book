@@ -117,12 +117,13 @@ export interface RecipeRequestBody {
   cookTime: number;
   ingredients: {
     subheader?: string | null;
-    quantity: number;
+    quantity?: number | null;
     name: string;
-    unit: string;
+    unit?: string | null;
   }[];
   steps: string[];
   tags?: string[];
+  sourceUrl?: string | null;
 }
 
 export const constructRecipePayloadFromBody = (
@@ -141,6 +142,7 @@ export const constructRecipePayloadFromBody = (
     ingredients,
     steps,
     tags,
+    sourceUrl,
   } = body as RecipeRequestBody;
 
   return {
@@ -157,6 +159,7 @@ export const constructRecipePayloadFromBody = (
     ingredients,
     steps,
     tags: normaliseTags(tags),
+    sourceUrl,
     // Authors have their own recipes saved
     savedBy: [{ userId, savedAt: new Date() }],
   };
@@ -178,6 +181,7 @@ export const constructUpdateRecipePayloadFromBody = (
     ingredients,
     steps,
     tags,
+    sourceUrl,
     ...rest
   } = body;
 
@@ -204,6 +208,7 @@ export const constructUpdateRecipePayloadFromBody = (
     ingredients,
     steps,
     tags: normaliseTags(tags),
+    sourceUrl,
   };
 };
 export interface EditSugestionBody {
@@ -211,9 +216,9 @@ export interface EditSugestionBody {
   isSuggestion: boolean;
   ingredients: {
     subheader?: string | null;
-    quantity: number;
+    quantity?: number | null;
     name: string;
-    unit: string;
+    unit?: string | null;
   }[];
   steps: string[];
   tags?: string[];
@@ -255,6 +260,18 @@ const TagsSchema = z
   .max(MAX_TAGS)
   .optional();
 
+// quantity and unit can be null for things like "salt, to taste". A quantity
+// given must be positive, and one without a unit is a count (e.g. 2 eggs)
+const IngredientSchema = z.object({
+  subheader: z.string().nullable().optional(),
+  quantity: z.coerce.number().positive().nullable().optional(),
+  name: z.string().min(1),
+  unit: z
+    .enum(Object.values(Unit) as [string, ...string[]])
+    .nullable()
+    .optional(),
+});
+
 export const RecipeSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
@@ -264,28 +281,18 @@ export const RecipeSchema = z.object({
   serves: z.coerce.number().positive(),
   prepTime: z.coerce.number().positive(),
   cookTime: z.coerce.number().positive(),
-  ingredients: z.array(
-    z.object({
-      subheader: z.string().nullable().optional(),
-      quantity: z.coerce.number().positive(),
-      name: z.string(),
-      unit: z.enum(Object.values(Unit) as [string, ...string[]]),
-    }),
-  ),
+  ingredients: z.array(IngredientSchema),
   steps: z.array(z.string().min(1)),
   tags: TagsSchema,
+  sourceUrl: z
+    .string()
+    .url()
+    .regex(/^https?:\/\//i)
+    .nullable()
+    .optional(),
 });
 export const EditSchema = z.object({
-  ingredients: z
-    .array(
-      z.object({
-        subheader: z.string().nullable().optional(),
-        quantity: z.coerce.number().positive(),
-        name: z.string(),
-        unit: z.enum(Object.values(Unit) as [string, ...string[]]),
-      }),
-    )
-    .optional(),
+  ingredients: z.array(IngredientSchema).optional(),
   steps: z.array(z.string().min(1)).optional(),
   tags: TagsSchema,
   comments: z.string().optional(),

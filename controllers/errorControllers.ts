@@ -53,18 +53,24 @@ const sendError = (err: any, res: Response, isDev: boolean): void => {
 };
 
 export const VALIDATION_ERROR_STRING = 'Validation_Error';
-const handleZodError = (err: ZodError) => {
-  const errors = (err.errors ?? []).map((issue) => ({
-    fieldname: issue.path.reduce((prev, cur) =>
-      typeof cur === 'string'
-        ? `${prev}.${cur}`
-        : `${prev}.[${cur.toString()}]`,
-    ) as string,
+
+/** Zod issues as { fieldname, code }, e.g. 'ingredients.[0].quantity' */
+export const formatZodIssues = (issues: ZodError['errors']) =>
+  issues.map((issue) => ({
+    fieldname: issue.path.reduce<string>(
+      (prev, cur, i) =>
+        typeof cur === 'string'
+          ? i === 0
+            ? cur
+            : `${prev}.${cur}`
+          : `${prev}.[${cur.toString()}]`,
+      '',
+    ),
     code: issue.code,
   }));
 
-  return new AppError(VALIDATION_ERROR_STRING, 400, errors);
-};
+const handleZodError = (err: ZodError) =>
+  new AppError(VALIDATION_ERROR_STRING, 400, formatZodIssues(err.errors ?? []));
 
 const globalErrorHandler = (
   err: any,

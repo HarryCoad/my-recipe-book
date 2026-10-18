@@ -15,6 +15,7 @@ Express + TypeScript + Mongoose (MongoDB Atlas) backend for a recipe book app. T
 - `routes/` → `controllers/` → `models/`. Recipe routes are in `routes/recipeRoutes.ts`, and every route except signup, login and password reset requires auth through `authController.protect`.
 - `utils/recipeUtils.ts` holds request payload builders, Zod schemas, and shared recipe logic (`applyEditToRecipe`, `releaseRecipeFromAuthor`, `removeRecipe`).
 - `translations/errorCodes.ts`: the error codes the API returns.
+- `utils/recipeImport/`: recipe import from a URL or an image. `fetchPage` (SSRF-safe fetch), `parsePage` (JSON-LD or main text), `extract` (Claude call), `normalise` (maps units and categories). Handlers are in `controllers/importController.ts`.
 - `dev-data/` and `config.env` are gitignored.
 - `scripts/`: one-off maintenance scripts that run against the real database. They're dry runs unless passed `--apply`.
 
@@ -39,6 +40,15 @@ These were decided deliberately. Keep them consistent:
 - **Recipes without an author:** deleting a recipe, or an account, goes through `releaseRecipeFromAuthor`. With other savers, the recipe stays with `authorId: null`, is frozen, has suggestions turned off and is hidden from general search. It's removed once nobody has it saved. Account deletion also unsaves the user everywhere and deletes their edits.
 - **Responses never include `savedBy`** (it would expose other users' IDs). Every recipe response goes through `formatRecipesForUser` in `recipeController.ts`, which adds `authorName`, `bSaved` and `savedCount`, and groups ingredients by subheader. Edit responses go through `formatEdits`, which adds `userName` and also groups ingredients. Grouping only happens in responses: stored order is unchanged.
 - Recipe visibility: the author, or `bPrivate: false`. Recipes without an author are also visible to their savers.
+- **Ingredients:** `quantity` and `unit` are nullable ("salt, to taste"). A quantity without a unit is a count.
+- **Imports** (`/recipes/import-url`, `/recipes/import-image`) never save. They return `{ draft, issues }` for the user to check and then submit to `/recipes/create`.
+  - Drafts are `bPrivate: true`, and URL imports set `sourceUrl`.
+  - Missing values come back as `0` or `null` and are listed in `issues`, rather than guessed.
+- **Claude for imports:** `IMPORT_MODEL` in `utils/recipeImport/extract.ts` is `claude-haiku-5-5` at low effort, to keep imports cheap (about $0.001 each). Don't switch to a pricier model without asking. Needs `ANTHROPIC_API_KEY` in `config.env`.
+  - The Claude-facing schema uses plain strings for `category` and `unit`. The SDK doesn't enforce enums, and its parse throws on any value outside one, which would fail the whole import over one odd unit. `normalise.ts` maps close values and validation flags the rest.
+- **Fetching user URLs:** `fetchPage` only reaches public http(s) addresses on default ports.
+  - It resolves with `dns.resolve*` (not `lookup`, which is broken here), checks every address, re-checks each redirect, and connects to the checked IP.
+  - Keep these checks if you change it. Its `isBlocked` and `allowAnyPort` options exist only for tests.
 - **Profiles:** `GET /users/:id` returns only public fields (never email). A profile's recipes come from `search?savedBy=<id>`, which is filtered by the *viewer's* visibility and refused with `SAVES_PRIVATE` when the owner has `bPrivateSaves: true` (default `false`).
 
 ## Gotchas
@@ -54,3 +64,5 @@ These were decided deliberately. Keep them consistent:
 - `tests/setup.ts` starts an in-memory MongoDB per test file and empties it before each test. `tests/helpers.ts` has `createUser`, `createRecipe`, `saveRecipe` and `as(user).get/post/patch/delete`.
 - Tests go through HTTP with Supertest. Each test sets up its own data and follows set up → act → check, with blank lines between the steps.
 - Add or update tests alongside behaviour changes, and run `npm test` before finishing.
+- Tests never call Claude or the internet. `tests/import.test.ts` mocks `extract` and `fetchPage`, `tests/extract.test.ts` mocks the Anthropic client, and `tests/fetchPage.test.ts` uses a local server.
+- Multipart uploads can't go through `as()`, whose `.send()` can't be mixed with `.attach()`. Use Supertest directly, as in `tests/import.test.ts`.

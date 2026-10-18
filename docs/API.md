@@ -80,12 +80,13 @@ Every recipe response, single or in a list, has this shape:
   ingredients: {               // grouped by subheader, see below
     id: string;
     subheader: string | null;  // optional heading to group ingredients, e.g. "For the sauce"
-    quantity: number;
+    quantity: number | null;   // null for things like "salt, to taste"
     name: string;
-    unit: Unit;
+    unit: Unit | null;         // null for a count (2 eggs) or no amount
   }[];
   steps: string[];
   tags: string[];              // always normalised, see "Tags" below
+  sourceUrl: string | null;    // where an imported recipe came from, for attribution
   bSaved: boolean;             // whether the current user has saved it
   savedCount: number;          // how many users have saved it, including the author
   bDeleted: boolean;           // always false in responses
@@ -100,7 +101,9 @@ Responses may also include `authorType`, an internal field the UI can ignore.
 
 **Category** is one of: `Starter`, `Small Plate`, `Sharer`, `Main`, `Dessert`, `Breakfast`, `Lunch`, `Cocktail`, `Baking`.
 
-**Unit** is one of: `g`, `kg`, `tsp`, `tbsp`, `ml`, `liter`, `pieces`, `cloves`, `small`, `medium`, `large`.
+**Unit** is one of: `g`, `kg`, `tsp`, `tbsp`, `ml`, `liter`, `pieces`, `cloves`, `small`, `medium`, `large`, `cup`, `fl oz`, `oz`, `lb`, `pinch`, `dash`, `can`, `bunch`, `slice`.
+
+**Quantities:** `quantity` and `unit` can both be left out or `null`, for ingredients with no amount ("salt, to taste"). A `quantity` with no `unit` is a count, e.g. 2 eggs. A `quantity` that's given must be positive.
 
 Both lists live in `constants/recipeConstants.ts`.
 
@@ -264,11 +267,52 @@ All of these need auth.
 }
 ```
 
-`tags`, `bPrivate` (default `false`), `bAllowSuggestions` (default `false`) and `subheader` are optional. `tags` are [normalised](#tags), with a limit of 10 tags of up to 30 characters each. `serves`, `prepTime`, `cookTime` and `quantity` must be positive. The author automatically saves their own recipe.
+`tags`, `bPrivate` (default `false`), `bAllowSuggestions` (default `false`), `subheader`, `quantity`, `unit` and `sourceUrl` are optional. `tags` are [normalised](#tags), with a limit of 10 tags of up to 30 characters each. `serves`, `prepTime` and `cookTime` must be positive, and so must `quantity` when given (see [Quantities](#recipe)). `sourceUrl` must be an `http(s)` URL. The author automatically saves their own recipe.
 
 **200:** `{ status, data: { recipe: Recipe } }`
 
 **Errors:** `Validation_Error` (400).
+
+### Importing recipes
+
+Two endpoints read a recipe from a web page or an image. Neither saves anything. They return a **draft**: a create body for the UI to open in the create form. The user checks and fixes it, then submits it to `POST /recipes/create` as usual.
+
+**200** for both:
+
+```ts
+{ status, data: { draft: CreateBody, issues: { fieldname: string, code: string }[] } }
+```
+
+- **`issues`** lists the fields that would fail `POST /recipes/create` as they are, using the same `fieldname` format as `Validation_Error`, e.g. `ingredients.[2].unit`. The UI can highlight them. An empty list means the draft can be submitted as it is.
+- **Gaps:** the draft is returned even when it has issues. For example, a missing cook time comes back as `0` and is listed in `issues`. Imports don't guess values the source didn't give.
+- **Privacy:** drafts have `bPrivate: true`, since imports are usually someone else's recipe. The user can change it before saving.
+- **Mapping:** close units and categories are mapped onto ours ("Tablespoons" becomes `tbsp`, "desserts" becomes `Dessert`). Anything that can't be mapped is left as it was and listed in `issues`.
+- **Rate limit:** both endpoints share a limit of **20 imports per hour per user**, on top of the general limit. Going over it gives `TOO_MANY_IMPORTS` (429).
+
+#### `POST /recipes/import-url`
+
+```json
+{ "url": "https://www.example.com/recipes/pancakes" }
+```
+
+The page is fetched by the server. Only public `http`/`https` addresses on the default port are allowed. Redirects are followed (up to 3), and the draft's `sourceUrl` is the final address. Pages must be HTML and under 2 MB, and must load within 10 seconds.
+
+**Errors:**
+- `INVALID_URL` (400) if `url` is missing or malformed.
+- `URL_NOT_ALLOWED` (400) for anything other than a public http(s) address on the default port, including a redirect to one.
+- `FETCH_FAILED` (502) if the page can't be loaded: timeout, error status, not HTML, too big or too many redirects.
+- `NO_RECIPE_FOUND` (422) if the page has no recipe.
+- `IMPORT_FAILED` (502) if reading the recipe failed. Trying again may work.
+
+#### `POST /recipes/import-image`
+
+`multipart/form-data` with the image in a field called `image`. JPEG, PNG, GIF or WebP, up to 5 MB. The draft's `sourceUrl` is `null`.
+
+**Errors:**
+- `INVALID_IMAGE` (400) if there's no image, or it isn't one of the supported formats. The type is checked from the file's content, not its name.
+- `IMAGE_TOO_LARGE` (413) for images over 5 MB.
+- `NO_RECIPE_FOUND` (422) if the image has no recipe.
+- `IMPORT_FAILED` (502) if reading the recipe failed.
 
 ### `GET /recipes/search`
 
@@ -456,4 +500,14 @@ These are in `translations/errorCodes.ts`.
 | `INVALID_CREDENTIALS` | Wrong email or password |
 | `INVALID_CURRENT_PASSWORD` | Wrong current password when changing it |
 | `MISSING_FIELDS` | A required field is missing or has the wrong type |
+| `AUTHOR_CANT_UNSAVE` | Authors can't unsave their own recipe: they delete it instead |
+| `SAVES_PRIVATE` | The user has made their saved recipes private |
+| `INVALID_URL` | The import URL is missing or malformed |
+| `URL_NOT_ALLOWED` | The import URL isn't a public http(s) address on the default port |
+| `FETCH_FAILED` | The page to import couldn't be loaded |
+| `INVALID_IMAGE` | No image was uploaded, or it isn't JPEG, PNG, GIF or WebP |
+| `IMAGE_TOO_LARGE` | The uploaded image is over 5 MB |
+| `NO_RECIPE_FOUND` | The page or image doesn't contain a recipe |
+| `IMPORT_FAILED` | Reading the recipe failed. Trying again may work |
+| `TOO_MANY_IMPORTS` | Over 20 imports in an hour |
 | `Validation_Error` | Body validation failed: see `errors` |

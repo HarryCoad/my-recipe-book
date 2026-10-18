@@ -1,6 +1,7 @@
 import express from 'express';
 
 import * as authController from '@controllers/authController';
+import * as importController from '@controllers/importController';
 import * as recipeController from '@controllers/recipeController';
 
 export enum RecipeRoutes {
@@ -16,6 +17,8 @@ export enum RecipeRoutes {
   My_Suggestions = '/my-suggestions',
   Search = '/search',
   Tags = '/tags',
+  Import_Url = '/import-url',
+  Import_Image = '/import-image',
 }
 
 const router = express.Router();
@@ -36,6 +39,17 @@ router.get(
 router.post(RecipeRoutes.Review_Suggestion, recipeController.reviewSuggestion);
 router.get(RecipeRoutes.My_Suggestions, recipeController.mySuggestions);
 router.get(RecipeRoutes.Tags, recipeController.tagSuggestions);
+router.post(
+  RecipeRoutes.Import_Url,
+  importController.importLimiter,
+  importController.importFromUrl,
+);
+router.post(
+  RecipeRoutes.Import_Image,
+  importController.importLimiter,
+  importController.uploadImage,
+  importController.importFromImage,
+);
 // Must stay last, otherwise '/:id' would match the GET routes above
 router.get(RecipeRoutes.View, recipeController.viweRecipe);
 

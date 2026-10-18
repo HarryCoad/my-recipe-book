@@ -32,4 +32,13 @@ export enum Unit {
   small = 'small',
   medium = 'medium',
   large = 'large',
+  cup = 'cup',
+  fl_oz = 'fl oz',
+  oz = 'oz',
+  lb = 'lb',
+  pinch = 'pinch',
+  dash = 'dash',
+  can = 'can',
+  bunch = 'bunch',
+  slice = 'slice',
 }

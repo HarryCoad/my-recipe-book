@@ -15,11 +15,25 @@ export interface Saver {
   savedAt: Date;
 }
 
+// quantity and unit are null for things like "salt, to taste". A quantity
+// without a unit is a count, e.g. 2 eggs
 export type Ingredient = {
   subheader?: string | null;
-  quantity: number;
+  quantity: number | null;
   name: string;
-  unit: Unit;
+  unit: Unit | null;
+};
+
+/** Mongoose ingredient schema, shared by recipes and edits */
+export const IngredientSchema = {
+  subheader: { type: String, default: null },
+  quantity: { type: Number, default: null },
+  name: { type: String, required: [true, ErrorCode.Required] },
+  unit: {
+    type: String,
+    enum: [...Object.values(Unit), null],
+    default: null,
+  },
 };
 
 export interface RecipeDocument extends Document<string> {
@@ -36,6 +50,7 @@ export interface RecipeDocument extends Document<string> {
   ingredients: Ingredient[];
   steps: string[];
   tags: string[];
+  sourceUrl: string | null;
   savedBy: Saver[];
 
   bDeleted: boolean;
@@ -72,22 +87,13 @@ const RecipeSchema = new Schema<RecipeDocument>(
     serves: { type: Number, required: [true, ErrorCode.Required] },
     prepTime: { type: Number, required: [true, ErrorCode.Required] },
     cookTime: { type: Number, required: [true, ErrorCode.Required] },
-    ingredients: [
-      {
-        subheader: { type: String, default: null },
-        quantity: { type: Number, required: [true, ErrorCode.Required] },
-        name: { type: String, required: [true, ErrorCode.Required] },
-        unit: {
-          type: String,
-          enum: Object.values(Unit),
-          required: [true, ErrorCode.Invalid_Options],
-        },
-      },
-    ],
+    ingredients: [IngredientSchema],
     steps: [{ type: String, required: [true, ErrorCode.Required] }],
     // The setter cleans tags on every write, including ones that skip the
     // request payload builders (e.g. the seed import script)
     tags: { type: [String], set: normaliseTags },
+    // Where an imported recipe came from, shown as attribution
+    sourceUrl: { type: String, default: null },
     // The only record of who saved what: users don't keep their own list
     savedBy: [
       {

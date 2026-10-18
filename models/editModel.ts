@@ -1,7 +1,6 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
-import { Ingredient } from './recipeModel';
+import { Ingredient, IngredientSchema } from './recipeModel';
 import { ErrorCode } from 'translations/errorCodes';
-import { Unit } from 'constants/recipeConstants';
 import { normaliseTags } from '../utils/tagUtils';
 
 export enum EditStatus {
@@ -29,18 +28,7 @@ const EditSchema = new Schema<EditDocument>({
   },
   userId: { type: Schema.Types.ObjectId, required: [true, ErrorCode.Required] },
   isSuggestion: { type: Boolean, default: false },
-  ingredients: [
-    {
-      subheader: { type: String, default: null },
-      quantity: { type: Number, required: [true, ErrorCode.Required] },
-      name: { type: String, required: [true, ErrorCode.Required] },
-      unit: {
-        type: String,
-        enum: Object.values(Unit),
-        required: [true, ErrorCode.Invalid_Options],
-      },
-    },
-  ],
+  ingredients: [IngredientSchema],
   steps: [{ type: String, required: [true, ErrorCode.Required] }],
   // Defaults to undefined rather than [] so "tags not edited" can be told
   // apart from "edited to remove all tags"
