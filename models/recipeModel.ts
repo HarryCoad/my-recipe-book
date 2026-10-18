@@ -28,7 +28,7 @@ export interface RecipeDocument extends Document<string> {
   bPrivate: boolean;
   bAllowSuggestions: boolean;
   title: string;
-  description: string;
+  description: string | null;
   category: RecipeCategory;
   serves: number;
   prepTime: number; // minutes
@@ -63,7 +63,7 @@ const RecipeSchema = new Schema<RecipeDocument>(
     bPrivate: { type: Boolean, default: RECIPE_PRIVATE_DEFAULT },
     bAllowSuggestions: { type: Boolean, default: RECIPE_SUGGESTIONS_DEFAULT },
     title: { type: String, required: [true, ErrorCode.Required] },
-    description: { type: String, required: false },
+    description: { type: String, required: false, default: null },
     category: {
       type: String,
       enum: Object.values(RecipeCategory),

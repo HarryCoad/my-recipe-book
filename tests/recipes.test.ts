@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { Types } from 'mongoose';
+import Recipe from '@models/recipeModel';
 import { ErrorCode } from 'translations/errorCodes';
 import {
   as,
@@ -52,6 +54,24 @@ describe('GET /recipes/:id', () => {
       savedCount: 1,
     });
     expect(res.body.data.recipe.savedBy).toBeUndefined();
+  });
+
+  it('sends a null description for recipes saved without one', async () => {
+    const alice = await createUser('alice');
+    const recipe = await createRecipe(alice);
+    // Older recipes were added straight to the database without a description
+    await Recipe.collection.updateOne(
+      { _id: new Types.ObjectId(String(recipe.id)) },
+      { $unset: { description: '' } },
+    );
+
+    const view = await as(alice).get(`/recipes/${recipe.id}`);
+    const search = await as(alice).get('/recipes/search');
+    const popular = await as(alice).get('/recipes/search?sort=popular');
+
+    expect(view.body.data.recipe.description).toBeNull();
+    expect(search.body.data[0].description).toBeNull();
+    expect(popular.body.data[0].description).toBeNull();
   });
 
   it('hides private recipes from other users', async () => {

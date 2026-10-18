@@ -24,6 +24,7 @@ import { Status } from 'types/generalTypes';
 
 type FormattableRecipe = {
   authorId: Types.ObjectId | null;
+  description?: string | null;
   savedBy?: Saver[];
   ingredients: { subheader?: string | null }[];
 };
@@ -48,6 +49,8 @@ const formatRecipesForUser = async <T extends FormattableRecipe>(
 
   return recipes.map(({ savedBy = [], ...recipe }) => ({
     ...recipe,
+    // Older recipes may have no description. Send null so the field is always there
+    description: recipe.description || null,
     ingredients: groupIngredientsBySubheader(recipe.ingredients),
     // null when the author deleted the recipe or their account
     authorName: recipe.authorId

@@ -72,7 +72,7 @@ Every recipe response, single or in a list, has this shape:
   bPrivate: boolean;
   bAllowSuggestions: boolean;
   title: string;
-  description: string;
+  description: string | null;  // null for older recipes saved without one
   category: Category;
   serves: number;
   prepTime: number;            // minutes
