@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import app from '../app';
+import { IMPORTS_PER_HOUR, MAX_IMAGES } from '@controllers/importController';
 import AppError from '@utils/appError';
 import { extractRecipe } from '@utils/recipeImport/extract';
 import { fetchPage } from '@utils/recipeImport/fetchPage';
@@ -71,6 +72,7 @@ describe('POST /recipes/import-url', () => {
       sourceUrl: 'https://example.com/pancakes',
       tags: ['breakfast', 'quick'],
     });
+    expect(res.body.data.recipe).toBeNull();
     expect(search.body.data).toHaveLength(0);
   });
 
@@ -146,7 +148,7 @@ describe('POST /recipes/import-url', () => {
     });
     vi.mocked(extractRecipe).mockResolvedValue({
       ...extracted,
-      description: null,
+      serves: 0,
       cookTime: 0,
     });
 
@@ -158,7 +160,26 @@ describe('POST /recipes/import-url', () => {
     expect(res.body.data.draft.cookTime).toBe(0);
     expect(
       res.body.data.issues.map((i: { fieldname: string }) => i.fieldname),
-    ).toEqual(['description', 'cookTime']);
+    ).toEqual(['serves', 'cookTime']);
+  });
+
+  it("doesn't flag a missing description", async () => {
+    vi.mocked(fetchPage).mockResolvedValue({
+      html: recipePage,
+      finalUrl: 'https://example.com/pancakes',
+    });
+    vi.mocked(extractRecipe).mockResolvedValue({
+      ...extracted,
+      description: null,
+    });
+
+    const res = await as(alice).post('/recipes/import-url', {
+      url: 'https://example.com/p',
+      bSkipReview: true,
+    });
+
+    expect(res.body.data.issues).toEqual([]);
+    expect(res.body.data.recipe.description).toBeNull();
   });
 
   it.each([{}, { url: '' }, { url: 42 }])(
@@ -246,9 +267,51 @@ describe('POST /recipes/import-image', () => {
     await importImage(alice, jpeg, 'photo.png');
 
     expect(extractRecipe).toHaveBeenCalledWith({
-      image: jpeg,
-      mediaType: 'image/jpeg',
+      images: [{ data: jpeg, mediaType: 'image/jpeg' }],
     });
+  });
+
+  it('sends several images of one recipe, in order', async () => {
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+
+    const res = await importImage(alice, jpeg, 'page1.jpg').attach(
+      'image',
+      png,
+      'page2.png',
+    );
+
+    expect(res.status).toBe(200);
+    expect(extractRecipe).toHaveBeenCalledTimes(1);
+    expect(extractRecipe).toHaveBeenCalledWith({
+      images: [
+        { data: jpeg, mediaType: 'image/jpeg' },
+        { data: png, mediaType: 'image/png' },
+      ],
+    });
+  });
+
+  it(`rejects more than ${MAX_IMAGES} images`, async () => {
+    let req = importImage(alice, png);
+    for (let i = 1; i <= MAX_IMAGES; i += 1) {
+      req = req.attach('image', png, `page${i}.png`);
+    }
+
+    const res = await req;
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe(ErrorCode.Too_Many_Images);
+  });
+
+  it('rejects the import if any of the images is invalid', async () => {
+    const res = await importImage(alice, png).attach(
+      'image',
+      Buffer.from('%PDF-1.7'),
+      'page2.pdf',
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe(ErrorCode.Invalid_Image);
+    expect(extractRecipe).not.toHaveBeenCalled();
   });
 
   it("rejects a file that isn't a supported image", async () => {
@@ -287,12 +350,204 @@ describe('POST /recipes/import-image', () => {
   });
 });
 
+describe('bSkipReview', () => {
+  const mockPage = () => {
+    vi.mocked(fetchPage).mockResolvedValue({
+      html: recipePage,
+      finalUrl: 'https://example.com/pancakes',
+    });
+  };
+
+  it('creates the recipe straight away when the import has no issues', async () => {
+    mockPage();
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+
+    const res = await as(alice).post('/recipes/import-url', {
+      url: 'https://example.com/p',
+      bSkipReview: true,
+    });
+    const saved = await as(alice).get('/recipes/search?bOnlySaved=true');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.issues).toEqual([]);
+    expect(res.body.data.recipe).toMatchObject({
+      id: expect.any(String),
+      title: 'Pancakes',
+      authorId: alice.id,
+      bPrivate: true,
+      bSaved: true,
+      sourceUrl: 'https://example.com/pancakes',
+    });
+    expect(saved.body.data.map((r: { id: string }) => r.id)).toEqual([
+      res.body.data.recipe.id,
+    ]);
+  });
+
+  it("doesn't create a recipe that has issues, returning it for review", async () => {
+    mockPage();
+    vi.mocked(extractRecipe).mockResolvedValue({ ...extracted, cookTime: 0 });
+
+    const res = await as(alice).post('/recipes/import-url', {
+      url: 'https://example.com/p',
+      bSkipReview: true,
+    });
+    const search = await as(alice).get('/recipes/search');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.recipe).toBeNull();
+    expect(res.body.data.issues).toHaveLength(1);
+    expect(search.body.data).toHaveLength(0);
+  });
+
+  it('works for image imports, sent as a form field', async () => {
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+
+    const res = await importImage(alice, png).field('bSkipReview', 'true');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.recipe).toMatchObject({
+      title: 'Pancakes',
+      sourceUrl: null,
+    });
+  });
+
+  it.each([false, 'false', 'yes'])(
+    'only creates the recipe for true, not %s',
+    async (bSkipReview) => {
+      mockPage();
+      vi.mocked(extractRecipe).mockResolvedValue(extracted);
+
+      const res = await as(alice).post('/recipes/import-url', {
+        url: 'https://example.com/p',
+        bSkipReview,
+      });
+
+      expect(res.body.data.recipe).toBeNull();
+    },
+  );
+});
+
+describe('duplicate imports', () => {
+  const importUrl = (user: TestUser, body: object = {}) =>
+    as(user).post('/recipes/import-url', {
+      url: 'https://example.com/p',
+      ...body,
+    });
+  const pageAt = (finalUrl: string) =>
+    vi.mocked(fetchPage).mockResolvedValue({ html: recipePage, finalUrl });
+
+  it('stores the page URL without tracking parameters or an anchor', async () => {
+    pageAt('https://example.com/pancakes?utm_source=pin&id=7#recipe');
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+
+    const res = await importUrl(alice);
+
+    expect(res.body.data.draft.sourceUrl).toBe(
+      'https://example.com/pancakes?id=7',
+    );
+  });
+
+  it('flags a page already in the book, without calling Claude', async () => {
+    pageAt('https://example.com/pancakes');
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+    const first = await importUrl(alice, { bSkipReview: true });
+    vi.mocked(extractRecipe).mockClear();
+    pageAt('https://example.com/pancakes?utm_campaign=x#top');
+
+    const again = await importUrl(alice, { bSkipReview: true });
+    const search = await as(alice).get('/recipes/search');
+
+    expect(again.status).toBe(200);
+    expect(again.body.data).toEqual({
+      draft: null,
+      issues: [],
+      recipe: null,
+      duplicateOf: { id: first.body.data.recipe.id, title: 'Pancakes' },
+    });
+    expect(extractRecipe).not.toHaveBeenCalled();
+    expect(search.body.data).toHaveLength(1);
+  });
+
+  it('flags photos already imported, including after review', async () => {
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+    const imported = await importImage(alice, png);
+    // The user reviews the draft, then saves it through the normal create
+    const created = await as(alice).post(
+      '/recipes/create',
+      imported.body.data.draft,
+    );
+    vi.mocked(extractRecipe).mockClear();
+
+    const again = await importImage(alice, png);
+
+    expect(imported.body.data.draft.sourceImageHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(created.body.data.recipe.sourceImageHash).toBeUndefined();
+    expect(again.body.data.duplicateOf).toEqual({
+      id: created.body.data.recipe.id,
+      title: 'Pancakes',
+    });
+    expect(extractRecipe).not.toHaveBeenCalled();
+  });
+
+  it('treats the same photos in a different order as different', async () => {
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+    await importImage(alice, png)
+      .attach('image', jpeg, 'b.jpg')
+      .field('bSkipReview', 'true');
+
+    const reordered = await importImage(alice, jpeg, 'b.jpg').attach(
+      'image',
+      png,
+      'a.png',
+    );
+
+    expect(reordered.body.data.duplicateOf).toBeNull();
+  });
+
+  it("only looks in the user's own book", async () => {
+    const bobby = await createUser('bobby');
+    pageAt('https://example.com/pancakes');
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+    await importUrl(bobby, { bSkipReview: true });
+
+    const res = await importUrl(alice);
+
+    expect(res.body.data.duplicateOf).toBeNull();
+    expect(res.body.data.draft.title).toBe('Pancakes');
+  });
+
+  it('imports it anyway with bAllowDuplicate', async () => {
+    pageAt('https://example.com/pancakes');
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+    await importUrl(alice, { bSkipReview: true });
+
+    const res = await importUrl(alice, {
+      bSkipReview: true,
+      bAllowDuplicate: true,
+    });
+    const search = await as(alice).get('/recipes/search');
+
+    expect(res.body.data.recipe).not.toBeNull();
+    expect(search.body.data).toHaveLength(2);
+  });
+
+  it('works with bAllowDuplicate as a form field for images', async () => {
+    vi.mocked(extractRecipe).mockResolvedValue(extracted);
+    await importImage(alice, png).field('bSkipReview', 'true');
+
+    const res = await importImage(alice, png).field('bAllowDuplicate', 'true');
+
+    expect(res.body.data.duplicateOf).toBeNull();
+    expect(res.body.data.draft.title).toBe('Pancakes');
+  });
+});
+
 describe('import rate limit', () => {
-  it('allows 20 imports an hour per user', async () => {
+  it(`allows ${IMPORTS_PER_HOUR} imports an hour per user`, async () => {
     const bobby = await createUser('bobby');
     vi.mocked(extractRecipe).mockResolvedValue(extracted);
 
-    for (let i = 0; i < 20; i += 1) {
+    for (let i = 0; i < IMPORTS_PER_HOUR; i += 1) {
       await importImage(alice, png);
     }
     const limited = await importImage(alice, png);

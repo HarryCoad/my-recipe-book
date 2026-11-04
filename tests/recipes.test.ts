@@ -37,6 +37,80 @@ describe('POST /recipes/create', () => {
 
     expect(res.status).toBe(400);
   });
+
+  it.each([
+    ['0', 0, 0],
+    ['null', null, null],
+  ])('allows a prep time of %s', async (_label, prepTime, saved) => {
+    const alice = await createUser('alice');
+
+    const res = await as(alice).post(
+      '/recipes/create',
+      recipeBody({ prepTime }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.recipe.prepTime).toBe(saved);
+  });
+
+  it.each([
+    ['left out', undefined],
+    ['null', null],
+    ['empty', ''],
+    ['blank', '   '],
+  ])(
+    'allows a description that is %s, storing null',
+    async (_label, description) => {
+      const alice = await createUser('alice');
+
+      const res = await as(alice).post(
+        '/recipes/create',
+        recipeBody({ description }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.recipe.description).toBeNull();
+    },
+  );
+
+  it('can clear the description with update-own-recipe, and keeps it when not sent', async () => {
+    const alice = await createUser('alice');
+    const recipe = await createRecipe(alice);
+
+    const kept = await as(alice).patch('/recipes/update-own-recipe', {
+      id: recipe.id,
+      title: 'New title',
+    });
+    const cleared = await as(alice).patch('/recipes/update-own-recipe', {
+      id: recipe.id,
+      description: '',
+    });
+
+    expect(kept.body.data.recipe.description).toBe('Fluffy pancakes');
+    expect(cleared.body.data.recipe.description).toBeNull();
+  });
+
+  it('allows leaving out the prep time, storing null', async () => {
+    const alice = await createUser('alice');
+    const { prepTime: _prepTime, ...body } = recipeBody();
+
+    const res = await as(alice).post('/recipes/create', body);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.recipe.prepTime).toBeNull();
+  });
+
+  it.each([
+    ['a negative prep time', { prepTime: -5 }],
+    ['a cook time of 0', { cookTime: 0 }],
+    ['a missing cook time', { cookTime: null }],
+  ])('rejects %s', async (_label, overrides) => {
+    const alice = await createUser('alice');
+
+    const res = await as(alice).post('/recipes/create', recipeBody(overrides));
+
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('GET /recipes/:id', () => {

@@ -170,6 +170,28 @@ describe('GET /recipes/search', () => {
     expect(titles(res).sort()).toEqual(['Medium', 'Quick']);
   });
 
+  it('counts a missing prep time as 0 in the total time', async () => {
+    const alice = await createUser('alice');
+    await createRecipe(alice, {
+      title: 'No prep',
+      prepTime: null,
+      cookTime: 20,
+    });
+    await createRecipe(alice, {
+      title: 'Zero prep',
+      prepTime: 0,
+      cookTime: 20,
+    });
+
+    const newest = await as(alice).get('/recipes/search?minTime=20&maxTime=20');
+    const popular = await as(alice).get(
+      '/recipes/search?minTime=20&maxTime=20&sort=popular',
+    );
+
+    expect(titles(newest).sort()).toEqual(['No prep', 'Zero prep']);
+    expect(titles(popular).sort()).toEqual(['No prep', 'Zero prep']);
+  });
+
   it('filters by serves', async () => {
     const alice = await createUser('alice');
     await createRecipe(alice, { title: 'Two', serves: 2 });

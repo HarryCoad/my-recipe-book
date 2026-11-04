@@ -41,7 +41,12 @@ These were decided deliberately. Keep them consistent:
 - **Responses never include `savedBy`** (it would expose other users' IDs). Every recipe response goes through `formatRecipesForUser` in `recipeController.ts`, which adds `authorName`, `bSaved` and `savedCount`, and groups ingredients by subheader. Edit responses go through `formatEdits`, which adds `userName` and also groups ingredients. Grouping only happens in responses: stored order is unchanged.
 - Recipe visibility: the author, or `bPrivate: false`. Recipes without an author are also visible to their savers.
 - **Ingredients:** `quantity` and `unit` are nullable ("salt, to taste"). A quantity without a unit is a count.
-- **Imports** (`/recipes/import-url`, `/recipes/import-image`) never save. They return `{ draft, issues }` for the user to check and then submit to `/recipes/create`.
+- **Imports** (`/recipes/import-url`, `/recipes/import-image`) return `{ draft, issues, recipe }`. Normally `recipe` is `null` and the user checks the draft, then submits it to `/recipes/create`.
+  - With `bSkipReview` (`true`, or `'true'` from multipart), a draft with no issues is created through `createRecipeForUser`, the same path as `/recipes/create`. A draft with issues is never created.
+  - Image imports take up to `MAX_IMAGES` (4) files in the `image` field, read as one recipe.
+  - **Duplicate check before calling Claude:** it looks only in the user's own book (`savedBy.userId`). URLs match on `sourceUrl`, stored through `normaliseSourceUrl` (no anchor or tracking params). Images match on `sourceImageHash`, the SHA-256 of the files in order.
+  - A match returns `draft: null` and `duplicateOf`, unless `bAllowDuplicate`.
+  - `sourceImageHash` is accepted on create, so it survives review. `formatRecipesForUser` strips it from responses.
   - Drafts are `bPrivate: true`, and URL imports set `sourceUrl`.
   - Missing values come back as `0` or `null` and are listed in `issues`, rather than guessed.
 - **Claude for imports:** `IMPORT_MODEL` in `utils/recipeImport/extract.ts` is `claude-haiku-5-5` at low effort, to keep imports cheap (about $0.001 each). Don't switch to a pricier model without asking. Needs `ANTHROPIC_API_KEY` in `config.env`.

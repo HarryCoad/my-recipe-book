@@ -73,3 +73,20 @@ export const matchCategory = (category: string): string => {
     ) ?? category
   );
 };
+
+// Tracking parameters that don't change which page a URL points to
+const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref)$/i;
+
+/**
+ * Tidy an imported page's URL before it's stored as sourceUrl, so the same
+ * recipe shared with tracking parameters or an anchor is recognised as the
+ * same page. Drops the #fragment and tracking parameters
+ */
+export const normaliseSourceUrl = (value: string): string => {
+  const url = new URL(value);
+  url.hash = '';
+  for (const key of [...url.searchParams.keys()]) {
+    if (TRACKING_PARAMS.test(key)) url.searchParams.delete(key);
+  }
+  return url.toString();
+};

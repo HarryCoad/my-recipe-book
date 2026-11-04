@@ -16,9 +16,9 @@ export type ImageMediaType =
   | 'image/png'
   | 'image/gif'
   | 'image/webp';
-export type ExtractInput =
-  | { text: string }
-  | { image: Buffer; mediaType: ImageMediaType };
+export type ExtractImage = { data: Buffer; mediaType: ImageMediaType };
+// Several images are the pages of one recipe, in order
+export type ExtractInput = { text: string } | { images: ExtractImage[] };
 
 const categories = Object.values(RecipeCategory) as [string, ...string[]];
 const units = Object.values(Unit) as [string, ...string[]];
@@ -67,7 +67,7 @@ If it doesn't contain a recipe, set bFoundRecipe to false and recipe to null. Ot
 - description: one or two sentences from the source describing the dish, or null if there isn't one.
 - category: the closest of: ${categories.join(', ')}.
 - serves: the number of servings. Use the lower number of a range, and 0 if it isn't given.
-- prepTime and cookTime: whole minutes. Convert ISO 8601 durations such as PT1H30M. Use 0 if a time isn't given. Don't guess.
+- prepTime and cookTime: whole minutes. Convert ISO 8601 durations such as PT1H30M. Use 0 if a time isn't given (for prepTime that also covers recipes with no prep). Don't guess.
 - ingredients: in the source's order. If the source groups ingredients under headings (e.g. "For the sauce"), put that heading in subheader, otherwise null. name is the ingredient with any preparation, e.g. "onion, finely chopped".
   - unit must be one of: ${units.join(', ')}. Use singular forms (cup, not cups; tbsp for tablespoons; tsp for teaspoons; ml for millilitres; liter for litres; g for grams).
   - If the amount is a count with no unit (2 eggs), set unit to null.
@@ -82,7 +82,7 @@ let client: Anthropic | null = null;
 const getClient = () => (client ??= new Anthropic());
 
 /**
- * Extract a recipe from page text or JSON-LD, or from an image, using Claude.
+ * Extract a recipe from page text or JSON-LD, or from images, using Claude.
  * Returns null if Claude didn't find a recipe. Throws IMPORT_FAILED if the
  * call fails or is refused
  */
@@ -98,15 +98,23 @@ export const extractRecipe = async (
           },
         ]
       : [
+          ...input.images.map(
+            (image): Anthropic.ImageBlockParam => ({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: image.mediaType,
+                data: image.data.toString('base64'),
+              },
+            }),
+          ),
           {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: input.mediaType,
-              data: input.image.toString('base64'),
-            },
+            type: 'text',
+            text:
+              input.images.length === 1
+                ? 'Extract the recipe from this image.'
+                : `These ${input.images.length} images are the pages of one recipe, in order. Extract it as a single recipe.`,
           },
-          { type: 'text', text: 'Extract the recipe from this image.' },
         ];
 
   let response;

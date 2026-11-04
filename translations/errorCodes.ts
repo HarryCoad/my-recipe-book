@@ -29,5 +29,6 @@ export enum ErrorCode {
   No_Recipe_Found = 'NO_RECIPE_FOUND',
   Import_Failed = 'IMPORT_FAILED',
   Too_Many_Imports = 'TOO_MANY_IMPORTS',
+  Too_Many_Images = 'TOO_MANY_IMAGES',
   Suggestion_Already_Reviewed = 'SUGGESTION_ALREADY_REVIEWED',
 }

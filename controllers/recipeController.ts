@@ -14,6 +14,7 @@ import {
   escapeRegex,
   groupIngredientsBySubheader,
   isSavedBy,
+  RecipeRequestBody,
   RecipeSchema,
   releaseRecipeFromAuthor,
   removeRecipe,
@@ -26,6 +27,7 @@ type FormattableRecipe = {
   authorId: Types.ObjectId | null;
   description?: string | null;
   savedBy?: Saver[];
+  sourceImageHash?: string | null;
   ingredients: { subheader?: string | null }[];
 };
 
@@ -47,7 +49,8 @@ const formatRecipesForUser = async <T extends FormattableRecipe>(
   const authors = await User.find({ _id: { $in: authorIds } }).lean();
   const authorNames = new Map(authors.map((a) => [String(a._id), a.username]));
 
-  return recipes.map(({ savedBy = [], ...recipe }) => ({
+  // sourceImageHash is internal, only used to spot repeat imports
+  return recipes.map(({ savedBy = [], sourceImageHash: _hash, ...recipe }) => ({
     ...recipe,
     // Older recipes may have no description. Send null so the field is always there
     description: recipe.description || null,
@@ -86,9 +89,15 @@ const formatEdits = async (edits: EditDocument[]) => {
   });
 };
 
-/** Create a new recipe */
-export const createRecipe = catchAsync(async (req, res, next) => {
-  const payload = constructRecipePayloadFromBody(req.body, req.user!._id);
+/**
+ * Validate and create a recipe for a user, returning it formatted for a
+ * response. Used by the create endpoint and by imports that skip review
+ */
+export const createRecipeForUser = async (
+  body: RecipeRequestBody,
+  userId: string,
+) => {
+  const payload = constructRecipePayloadFromBody(body, userId);
 
   // 1) Validate fields
   RecipeSchema.parse(payload);
@@ -97,14 +106,18 @@ export const createRecipe = catchAsync(async (req, res, next) => {
   const newRecipe: RecipeDocument = await Recipe.create(payload);
   const recipeCopy = await formatRecipeForUser(
     newRecipe.toObject({ versionKey: false }),
-    req.user!.id,
+    userId,
   );
   delete recipeCopy.authorType;
+  return recipeCopy;
+};
 
+/** Create a new recipe */
+export const createRecipe = catchAsync(async (req, res, next) => {
   res.status(200).json({
     status: Status.Success,
     data: {
-      recipe: recipeCopy,
+      recipe: await createRecipeForUser(req.body, req.user!.id),
     },
   });
 });
@@ -638,7 +651,10 @@ export const searchRecipes = catchAsync(async (req, res, next) => {
   }
 
   // Total time (prep + cook) filter
-  const totalTime = { $add: ['$prepTime', '$cookTime'] };
+  // A missing prep time counts as 0, otherwise $add would give null
+  const totalTime = {
+    $add: [{ $ifNull: ['$prepTime', 0] }, '$cookTime'],
+  };
   if (ranges.minTime !== undefined)
     query.$and.push({ $expr: { $gte: [totalTime, ranges.minTime] } });
   if (ranges.maxTime !== undefined)

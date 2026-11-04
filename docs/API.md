@@ -72,10 +72,10 @@ Every recipe response, single or in a list, has this shape:
   bPrivate: boolean;
   bAllowSuggestions: boolean;
   title: string;
-  description: string | null;  // null for older recipes saved without one
+  description: string | null;  // null when the recipe has none
   category: Category;
   serves: number;
-  prepTime: number;            // minutes
+  prepTime: number | null;     // minutes, 0 or null when there's no prep
   cookTime: number;            // minutes
   ingredients: {               // grouped by subheader, see below
     id: string;
@@ -267,7 +267,7 @@ All of these need auth.
 }
 ```
 
-`tags`, `bPrivate` (default `false`), `bAllowSuggestions` (default `false`), `subheader`, `quantity`, `unit` and `sourceUrl` are optional. `tags` are [normalised](#tags), with a limit of 10 tags of up to 30 characters each. `serves`, `prepTime` and `cookTime` must be positive, and so must `quantity` when given (see [Quantities](#recipe)). `sourceUrl` must be an `http(s)` URL. The author automatically saves their own recipe.
+`tags`, `bPrivate` (default `false`), `bAllowSuggestions` (default `false`), `description`, `prepTime`, `subheader`, `quantity`, `unit` and `sourceUrl` are optional. A missing, empty or blank `description` is stored as `null`, and sending an empty one to `update-own-recipe` clears it. `tags` are [normalised](#tags), with a limit of 10 tags of up to 30 characters each. `serves` and `cookTime` must be positive. `prepTime` can be `0`, `null` or left out (stored as `null`), but not negative. `quantity` must be positive when given (see [Quantities](#recipe)). `sourceUrl` must be an `http(s)` URL. The author automatically saves their own recipe.
 
 **200:** `{ status, data: { recipe: Recipe } }`
 
@@ -275,27 +275,45 @@ All of these need auth.
 
 ### Importing recipes
 
-Two endpoints read a recipe from a web page or an image. Neither saves anything. They return a **draft**: a create body for the UI to open in the create form. The user checks and fixes it, then submits it to `POST /recipes/create` as usual.
+Two endpoints read a recipe from a web page or an image. By default neither saves anything. They return a **draft**: a create body for the UI to open in the create form. The user checks and fixes it, then submits it to `POST /recipes/create` as usual.
+
+**Skipping review:** send `bSkipReview: true` to have the recipe created straight away, for importing lots of recipes quickly. It's only created if the draft has no `issues`. A draft with issues comes back for review as usual, so check `recipe` in the response to see which happened. For the image import it's a form field, so send the string `true`.
+
+**Duplicates:** before reading the recipe, both endpoints check whether it's already in the user's book, meaning a recipe they wrote or saved.
+- **URL imports** match on the same page. URLs are compared without their `#anchor` or tracking parameters such as `utm_*`, `fbclid` and `gclid`.
+- **Image imports** match on exactly the same image files, in the same order.
+
+If there's a match, nothing is read or created. The response has `draft: null` and `duplicateOf` set to the existing recipe, so a bulk import can skip it cheaply. To import it anyway, send `bAllowDuplicate: true` (the string `true` for image imports). An edited or re-saved photo won't match, so this catches repeat imports of the same files, not every copy of a recipe.
 
 **200** for both:
 
 ```ts
-{ status, data: { draft: CreateBody, issues: { fieldname: string, code: string }[] } }
+{
+  status,
+  data: {
+    draft: CreateBody | null,  // null when duplicateOf is set
+    issues: { fieldname: string, code: string }[],
+    recipe: Recipe | null,     // the created recipe with bSkipReview, otherwise null
+    duplicateOf: { id: string, title: string } | null,  // the recipe already in the book
+  }
+}
 ```
+
+Image drafts include `sourceImageHash`. Keep it in the body when submitting the draft to `POST /recipes/create`, so the duplicate check still works after the user reviews it. It isn't included in recipe responses.
 
 - **`issues`** lists the fields that would fail `POST /recipes/create` as they are, using the same `fieldname` format as `Validation_Error`, e.g. `ingredients.[2].unit`. The UI can highlight them. An empty list means the draft can be submitted as it is.
 - **Gaps:** the draft is returned even when it has issues. For example, a missing cook time comes back as `0` and is listed in `issues`. Imports don't guess values the source didn't give.
 - **Privacy:** drafts have `bPrivate: true`, since imports are usually someone else's recipe. The user can change it before saving.
 - **Mapping:** close units and categories are mapped onto ours ("Tablespoons" becomes `tbsp`, "desserts" becomes `Dessert`). Anything that can't be mapped is left as it was and listed in `issues`.
-- **Rate limit:** both endpoints share a limit of **20 imports per hour per user**, on top of the general limit. Going over it gives `TOO_MANY_IMPORTS` (429).
+- **Rate limit:** both endpoints share a limit of **100 imports per hour per user**, on top of the general limit. Going over it gives `TOO_MANY_IMPORTS` (429).
 
 #### `POST /recipes/import-url`
 
 ```json
-{ "url": "https://www.example.com/recipes/pancakes" }
+{ "url": "https://www.example.com/recipes/pancakes", "bSkipReview": false, "bAllowDuplicate": false }
 ```
 
-The page is fetched by the server. Only public `http`/`https` addresses on the default port are allowed. Redirects are followed (up to 3), and the draft's `sourceUrl` is the final address. Pages must be HTML and under 2 MB, and must load within 10 seconds.
+The page is fetched by the server. Only public `http`/`https` addresses on the default port are allowed. Redirects are followed (up to 3), and the draft's `sourceUrl` is the final address, without its anchor or tracking parameters. Pages must be HTML and under 2 MB, and must load within 10 seconds.
 
 **Errors:**
 - `INVALID_URL` (400) if `url` is missing or malformed.
@@ -306,11 +324,14 @@ The page is fetched by the server. Only public `http`/`https` addresses on the d
 
 #### `POST /recipes/import-image`
 
-`multipart/form-data` with the image in a field called `image`. JPEG, PNG, GIF or WebP, up to 5 MB. The draft's `sourceUrl` is `null`.
+`multipart/form-data` with the image in a field called `image`. Optionally add `bSkipReview` and `bAllowDuplicate` set to `true`. JPEG, PNG, GIF or WebP, up to 5 MB each. The draft's `sourceUrl` is `null`.
+
+**Several pages:** for a recipe split across pages, such as a cookbook spread, send up to **4 images** in the same `image` field, in page order. They're read together as **one** recipe and count as one import. For several different recipes, make one request per recipe.
 
 **Errors:**
-- `INVALID_IMAGE` (400) if there's no image, or it isn't one of the supported formats. The type is checked from the file's content, not its name.
-- `IMAGE_TOO_LARGE` (413) for images over 5 MB.
+- `INVALID_IMAGE` (400) if there's no image, or any of them isn't one of the supported formats. The type is checked from the file's content, not its name.
+- `TOO_MANY_IMAGES` (400) for more than 4 images.
+- `IMAGE_TOO_LARGE` (413) for any image over 5 MB.
 - `NO_RECIPE_FOUND` (422) if the image has no recipe.
 - `IMPORT_FAILED` (502) if reading the recipe failed.
 
@@ -325,7 +346,7 @@ The page is fetched by the server. Only public `http`/`https` addresses on the d
 | `savedBy` | | A user's ID, for their profile: only recipes they saved, including ones they wrote. Refused if they've set `bPrivateSaves`, unless it's the user's own ID |
 | `bHideSaved` | | `true` to leave out recipes the user saved, which includes their own. Can't be combined with `bOnlySaved` |
 | `tags` | | Comma-separated, e.g. `italian,quick`. Recipes must have every tag. Tags are [normalised](#tags) before matching |
-| `minTime` / `maxTime` | | Total minutes (`prepTime + cookTime`), inclusive |
+| `minTime` / `maxTime` | | Total minutes (`prepTime + cookTime`, with a `null` prep time counting as 0), inclusive |
 | `minServes` / `maxServes` | | Inclusive |
 | `sort` | newest | `oldest`, `title` or `popular` (most saved) |
 | `page` | `1` | |
@@ -509,5 +530,6 @@ These are in `translations/errorCodes.ts`.
 | `IMAGE_TOO_LARGE` | The uploaded image is over 5 MB |
 | `NO_RECIPE_FOUND` | The page or image doesn't contain a recipe |
 | `IMPORT_FAILED` | Reading the recipe failed. Trying again may work |
-| `TOO_MANY_IMPORTS` | Over 20 imports in an hour |
+| `TOO_MANY_IMPORTS` | Over 100 imports in an hour |
+| `TOO_MANY_IMAGES` | More than 4 images in one image import |
 | `Validation_Error` | Body validation failed: see `errors` |

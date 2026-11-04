@@ -45,12 +45,13 @@ export interface RecipeDocument extends Document<string> {
   description: string | null;
   category: RecipeCategory;
   serves: number;
-  prepTime: number; // minutes
+  prepTime: number | null; // minutes, null or 0 when there's no prep
   cookTime: number; // minutes
   ingredients: Ingredient[];
   steps: string[];
   tags: string[];
   sourceUrl: string | null;
+  sourceImageHash: string | null;
   savedBy: Saver[];
 
   bDeleted: boolean;
@@ -85,7 +86,7 @@ const RecipeSchema = new Schema<RecipeDocument>(
       required: [true, ErrorCode.Invalid_Options],
     },
     serves: { type: Number, required: [true, ErrorCode.Required] },
-    prepTime: { type: Number, required: [true, ErrorCode.Required] },
+    prepTime: { type: Number, default: null, min: 0 },
     cookTime: { type: Number, required: [true, ErrorCode.Required] },
     ingredients: [IngredientSchema],
     steps: [{ type: String, required: [true, ErrorCode.Required] }],
@@ -94,6 +95,9 @@ const RecipeSchema = new Schema<RecipeDocument>(
     tags: { type: [String], set: normaliseTags },
     // Where an imported recipe came from, shown as attribution
     sourceUrl: { type: String, default: null },
+    // SHA-256 of the image(s) an imported recipe was read from, so importing
+    // the same photos again can be flagged. Never sent in responses
+    sourceImageHash: { type: String, default: null },
     // The only record of who saved what: users don't keep their own list
     savedBy: [
       {

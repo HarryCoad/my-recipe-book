@@ -70,7 +70,7 @@ describe('extractRecipe', () => {
     });
     const image = Buffer.from('image bytes');
 
-    await extractRecipe({ image, mediaType: 'image/png' });
+    await extractRecipe({ images: [{ data: image, mediaType: 'image/png' }] });
 
     expect(parse.mock.calls[0][0].messages[0].content[0]).toEqual({
       type: 'image',
@@ -80,6 +80,32 @@ describe('extractRecipe', () => {
         data: image.toString('base64'),
       },
     });
+  });
+
+  it('sends several images in order, as the pages of one recipe', async () => {
+    parse.mockResolvedValue({
+      stop_reason: 'end_turn',
+      parsed_output: { bFoundRecipe: true, recipe },
+    });
+    const page1 = Buffer.from('page one');
+    const page2 = Buffer.from('page two');
+
+    await extractRecipe({
+      images: [
+        { data: page1, mediaType: 'image/jpeg' },
+        { data: page2, mediaType: 'image/png' },
+      ],
+    });
+
+    const content = parse.mock.calls[0][0].messages[0].content;
+    expect(content.map((block: { type: string }) => block.type)).toEqual([
+      'image',
+      'image',
+      'text',
+    ]);
+    expect(content[0].source.data).toBe(page1.toString('base64'));
+    expect(content[1].source.data).toBe(page2.toString('base64'));
+    expect(content[2].text).toContain('2 images are the pages of one recipe');
   });
 
   it.each([

@@ -110,10 +110,10 @@ export interface RecipeRequestBody {
   bPrivate?: boolean;
   bAllowSuggestions?: boolean;
   title: string;
-  description?: string;
+  description?: string | null;
   category: string;
   serves: number;
-  prepTime: number;
+  prepTime?: number | null;
   cookTime: number;
   ingredients: {
     subheader?: string | null;
@@ -124,7 +124,12 @@ export interface RecipeRequestBody {
   steps: string[];
   tags?: string[];
   sourceUrl?: string | null;
+  sourceImageHash?: string | null;
 }
+
+/** An empty or blank string as null. Anything else is returned unchanged */
+const blankToNull = <T>(value: T) =>
+  typeof value === 'string' && value.trim() === '' ? null : value;
 
 export const constructRecipePayloadFromBody = (
   body: RecipeRequestBody,
@@ -143,6 +148,7 @@ export const constructRecipePayloadFromBody = (
     steps,
     tags,
     sourceUrl,
+    sourceImageHash,
   } = body as RecipeRequestBody;
 
   return {
@@ -151,7 +157,7 @@ export const constructRecipePayloadFromBody = (
     bPrivate,
     bAllowSuggestions,
     title,
-    description,
+    description: blankToNull(description) ?? null,
     category,
     serves,
     prepTime,
@@ -160,6 +166,8 @@ export const constructRecipePayloadFromBody = (
     steps,
     tags: normaliseTags(tags),
     sourceUrl,
+    // Set from an image import's draft. Not changeable afterwards
+    sourceImageHash,
     // Authors have their own recipes saved
     savedBy: [{ userId, savedAt: new Date() }],
   };
@@ -200,7 +208,8 @@ export const constructUpdateRecipePayloadFromBody = (
     bPrivate,
     bAllowSuggestions,
     title,
-    description,
+    // undefined (not sent) is kept, so an update doesn't clear it
+    description: blankToNull(description),
     category,
     serves,
     prepTime,
@@ -274,12 +283,14 @@ const IngredientSchema = z.object({
 
 export const RecipeSchema = z.object({
   title: z.string().min(1),
-  description: z.string().min(1),
+  // Optional, since many imported recipes don't have one. Stored as null
+  description: z.string().nullable().optional(),
   bPrivate: z.boolean().optional(),
   bAllowSuggestions: z.boolean().optional(),
   category: z.enum(Object.values(RecipeCategory) as [string, ...string[]]),
   serves: z.coerce.number().positive(),
-  prepTime: z.coerce.number().positive(),
+  // Optional: 0 or null for recipes with no prep. Cook time is still required
+  prepTime: z.coerce.number().min(0).nullable().optional(),
   cookTime: z.coerce.number().positive(),
   ingredients: z.array(IngredientSchema),
   steps: z.array(z.string().min(1)),
@@ -288,6 +299,11 @@ export const RecipeSchema = z.object({
     .string()
     .url()
     .regex(/^https?:\/\//i)
+    .nullable()
+    .optional(),
+  sourceImageHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
     .nullable()
     .optional(),
 });
